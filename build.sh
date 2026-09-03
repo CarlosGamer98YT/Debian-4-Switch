@@ -15,10 +15,7 @@ TOOLS_DIR="${CWD}/tools"
 DOWNLOADS_DIR="${CWD}/downloads"
 
 ARCH=arm64
-CROSS_COMPILE="${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-"
-export ARCH CROSS_COMPILE
-export PATH="${TOOLS_DIR}/cross-bin:${TOOLS_DIR}/usr/bin:${PATH}"
-export LD_LIBRARY_PATH="${TOOLS_DIR}/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+export ARCH
 
 echo "========================================================================"
 echo "  CONSTRUCCIÓN DE DEBIAN 13 (TRIXIE) ARM64 PARA NINTENDO SWITCH"
@@ -30,36 +27,42 @@ echo "========================================================================"
 echo "[*] Paso 0: Verificando herramientas de compilación cruzada..."
 mkdir -p "${TOOLS_DIR}/cross-bin" "${WORKDIR}" "${DOWNLOADS_DIR}"
 
-if ! command -v aarch64-linux-gnu-gcc &> /dev/null; then
-    echo "[!] Configurando toolchain cruzada aarch64..."
+if command -v aarch64-linux-gnu-gcc &> /dev/null; then
+    CROSS_COMPILE="aarch64-linux-gnu-"
+    export CROSS_COMPILE
+    echo "[✓] Toolchain cruzada del sistema detectada: $(aarch64-linux-gnu-gcc --version | head -n 1)"
+else
+    echo "[!] Toolchain cruzada no instalada en sistema. Configurando toolchain local..."
     cd "${TOOLS_DIR}"
     apt-get download gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
       gcc-14-aarch64-linux-gnu cpp-14-aarch64-linux-gnu \
       libc6-dev-arm64-cross linux-libc-dev-arm64-cross u-boot-tools || true
     for f in *.deb; do [ -f "$f" ] && dpkg -x "$f" ./; done
     cd "${CWD}"
-fi
 
-# Generar wrappers de compilación cruzada aislados
-cat << 'EOF' > "${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-gcc"
+    cat << 'EOF' > "${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-gcc"
 #!/bin/bash
 REAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export LD_LIBRARY_PATH="${REAL_DIR}/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
 exec "${REAL_DIR}/usr/bin/aarch64-linux-gnu-gcc" -B"${REAL_DIR}/usr/libexec/gcc-cross/aarch64-linux-gnu/14/" -B"${REAL_DIR}/usr/aarch64-linux-gnu/bin/" "$@"
 EOF
-chmod +x "${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-gcc"
+    chmod +x "${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-gcc"
 
-for tool in ld as ar ranlib nm strip objcopy objdump; do
-cat << EOF > "${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-${tool}"
+    for tool in ld as ar ranlib nm strip objcopy objdump; do
+    cat << EOF > "${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-${tool}"
 #!/bin/bash
 REAL_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")/.." && pwd)"
 export LD_LIBRARY_PATH="\${REAL_DIR}/usr/lib/x86_64-linux-gnu:\${LD_LIBRARY_PATH:-}"
 exec "\${REAL_DIR}/usr/bin/aarch64-linux-gnu-${tool}" "\$@"
 EOF
-chmod +x "${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-${tool}"
-done
-
-echo "[✓] Toolchain cruzada lista: $(aarch64-linux-gnu-gcc --version | head -n 1)"
+    chmod +x "${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-${tool}"
+    done
+    export PATH="${TOOLS_DIR}/cross-bin:${TOOLS_DIR}/usr/bin:${PATH}"
+    export LD_LIBRARY_PATH="${TOOLS_DIR}/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+    CROSS_COMPILE="${TOOLS_DIR}/cross-bin/aarch64-linux-gnu-"
+    export CROSS_COMPILE
+    echo "[✓] Toolchain cruzada local lista: $(aarch64-linux-gnu-gcc --version | head -n 1)"
+fi
 
 # ------------------------------------------------------------------------------
 # PASO 1: Descarga y Extracción de Debian 13 (Trixie) ARM64 RootFS
@@ -84,6 +87,27 @@ mkdir -p "${ROOTFS_DIR}"
 # PASO 2: Compilación de Kernel Linux 4.9 L4T y Device Trees
 # ------------------------------------------------------------------------------
 echo "[*] Paso 2: Compilando Kernel Linux Switch L4T y Device Trees..."
+mkdir -p "${CWD}/kernel"
+if [ ! -d "${KERNEL_DIR}" ]; then
+    echo "  -> Clonando switch-l4t-kernel-4.9..."
+    git clone --depth 1 -b "linux-dev" https://github.com/theofficialgman/switch-l4t-kernel-4.9.git "${KERNEL_DIR}"
+fi
+if [ ! -d "${CWD}/kernel/nvidia" ]; then
+    echo "  -> Clonando subsistemas y drivers Nvidia Tegra..."
+    git clone --depth 1 -b "linux-dev" https://github.com/theofficialgman/switch-l4t-kernel-nvidia.git "${CWD}/kernel/nvidia"
+    git clone --depth 1 -b "linux-dev" https://github.com/theofficialgman/switch-l4t-platform-t210-nx.git "${CWD}/kernel/hardware/nvidia/platform/t210/nx"
+    git clone --depth 1 -b "linux-3.4.0-r32.5" https://gitlab.com/switchroot/kernel/l4t-kernel-nvgpu "${CWD}/kernel/nvgpu"
+    git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-soc-t210 "${CWD}/kernel/hardware/nvidia/soc/t210"
+    git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-soc-tegra "${CWD}/kernel/hardware/nvidia/soc/tegra/"
+    git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-platform-tegra-common "${CWD}/kernel/hardware/nvidia/platform/tegra/common/"
+    git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-platform-t210-common "${CWD}/kernel/hardware/nvidia/platform/t210/common/"
+    
+    if [ -f "${CWD}/patches/kernel/0001-Bluetooth-backport-BlueZ-5.8x-mgmt-opcodes-and-fix-c.patch" ]; then
+        echo "  -> Aplicando parche Bluetooth para BlueZ 5.8x..."
+        git -C "${KERNEL_DIR}" apply "${CWD}/patches/kernel/0001-Bluetooth-backport-BlueZ-5.8x-mgmt-opcodes-and-fix-c.patch" || true
+    fi
+fi
+
 cd "${KERNEL_DIR}"
 export KCFLAGS="-w"
 
@@ -158,27 +182,30 @@ fi
 # Enlace directo para init
 ln -sf /lib/systemd/systemd "${ROOTFS_DIR}/init"
 
+# Detectar binario QEMU aarch64 (sistema o local)
+QEMU_BIN="$(command -v qemu-aarch64-static || echo "${TOOLS_DIR}/usr/bin/qemu-aarch64-static")"
+
 # Generar loaders.cache de gdk-pixbuf con soporte PNG y SVG
 echo "  -> Generando loaders.cache de gdk-pixbuf..."
 mkdir -p "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/2.10.0"
-"${TOOLS_DIR}/usr/bin/qemu-aarch64-static" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders" > "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+"${QEMU_BIN}" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders" > "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders.cache" 2>/dev/null || true
 
 # Generar cache de MIME y fuentes
 echo "  -> Generando cache de MIME y fuentes..."
 mkdir -p "${ROOTFS_DIR}/var/cache/fontconfig"
 chmod 777 "${ROOTFS_DIR}/var/cache/fontconfig"
-"${TOOLS_DIR}/usr/bin/qemu-aarch64-static" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/bin/update-mime-database" "${ROOTFS_DIR}/usr/share/mime" 2>/dev/null || true
-"${TOOLS_DIR}/usr/bin/qemu-aarch64-static" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/bin/fc-cache" -f 2>/dev/null || true
+"${QEMU_BIN}" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/bin/update-mime-database" "${ROOTFS_DIR}/usr/share/mime" 2>/dev/null || true
+"${QEMU_BIN}" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/bin/fc-cache" -f 2>/dev/null || true
 
 # Generar cache de temas de iconos GTK
 echo "  -> Generando cache de temas de iconos GTK..."
-"${TOOLS_DIR}/usr/bin/qemu-aarch64-static" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/bin/gtk-update-icon-cache" -f -t "${ROOTFS_DIR}/usr/share/icons/hicolor" 2>/dev/null || true
-"${TOOLS_DIR}/usr/bin/qemu-aarch64-static" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/bin/gtk-update-icon-cache" -f -t "${ROOTFS_DIR}/usr/share/icons/Adwaita" 2>/dev/null || true
+"${QEMU_BIN}" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/bin/gtk-update-icon-cache" -f -t "${ROOTFS_DIR}/usr/share/icons/hicolor" 2>/dev/null || true
+"${QEMU_BIN}" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/bin/gtk-update-icon-cache" -f -t "${ROOTFS_DIR}/usr/share/icons/Adwaita" 2>/dev/null || true
 
 # Compilar esquemas GSettings de GLib
 echo "  -> Compilando esquemas GSettings de GLib..."
 glib-compile-schemas "${ROOTFS_DIR}/usr/share/glib-2.0/schemas/" 2>/dev/null || \
-"${TOOLS_DIR}/usr/bin/qemu-aarch64-static" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/glib-2.0/glib-compile-schemas" "${ROOTFS_DIR}/usr/share/glib-2.0/schemas/" 2>/dev/null || true
+"${QEMU_BIN}" -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/glib-2.0/glib-compile-schemas" "${ROOTFS_DIR}/usr/share/glib-2.0/schemas/" 2>/dev/null || true
 
 
 
@@ -1338,6 +1365,14 @@ rm -rf "${BOOT_DIR}"
 mkdir -p "${BOOT_DIR}/bootloader/ini" "${BOOT_DIR}/bootloader/res" "${BOOT_DIR}/switchroot/debian"
 
 # 1. Extraer archivos oficiales del bootloader Hekate y firmwares L4T (sys/l4t/*)
+if [ ! -f "${DOWNLOADS_DIR}/hekate_release.zip" ]; then
+    echo "  -> Descargando última release de Hekate (CTCaer)..."
+    HEKATE_URL=$(curl -sL https://api.github.com/repos/CTCaer/hekate/releases/latest | grep "browser_download_url.*hekate_ctcaer.*\.zip" | head -n 1 | cut -d '"' -f 4 || true)
+    if [ -n "${HEKATE_URL}" ]; then
+        curl -sL -o "${DOWNLOADS_DIR}/hekate_release.zip" "${HEKATE_URL}"
+    fi
+fi
+
 if [ -f "${DOWNLOADS_DIR}/hekate_release.zip" ]; then
     echo "  -> Extrayendo Hekate y firmwares SC7/BPMP en bootloader/..."
     7z x -y "${DOWNLOADS_DIR}/hekate_release.zip" -o"${BOOT_DIR}" > /dev/null
@@ -1365,15 +1400,17 @@ else
     cp "${BSP_TMP}/opt/switchroot/bootstack/icon_ubuntu_hue.bmp" "${BOOT_DIR}/switchroot/debian/icon_debian.bmp"
 fi
 
+MKIMAGE_BIN="$(command -v mkimage || echo "${TOOLS_DIR}/usr/bin/mkimage")"
+
 # Modificar boot.scr para agregar net.ifnames=0 (manteniendo nombre wlan0)
 tail -c +73 "${BSP_TMP}/opt/switchroot/bootstack/boot.scr" > "${WORKDIR}/boot.txt"
 sed -i 's/systemd.legacy_systemd_cgroup_controller=1/systemd.legacy_systemd_cgroup_controller=1 net.ifnames=0/' "${WORKDIR}/boot.txt"
-LD_LIBRARY_PATH="${TOOLS_DIR}/usr/lib/x86_64-linux-gnu" "${TOOLS_DIR}/usr/bin/mkimage" -A arm64 -T script -C none -n "boot.scr" -d "${WORKDIR}/boot.txt" "${BOOT_DIR}/switchroot/debian/boot.scr"
+"${MKIMAGE_BIN}" -A arm64 -T script -C none -n "boot.scr" -d "${WORKDIR}/boot.txt" "${BOOT_DIR}/switchroot/debian/boot.scr"
 rm -f "${WORKDIR}/boot.txt"
 
 # 3. Kernel compilado uImage
 echo "  -> Generando uImage del kernel recién compilado y parchado..."
-LD_LIBRARY_PATH="${TOOLS_DIR}/usr/lib/x86_64-linux-gnu" "${TOOLS_DIR}/usr/bin/mkimage" -A arm64 -O linux -T kernel -C gzip -a 0x80200000 -e 0x80200000 -n Switch-Debian-13 \
+"${MKIMAGE_BIN}" -A arm64 -O linux -T kernel -C gzip -a 0x80200000 -e 0x80200000 -n Switch-Debian-13 \
     -d "${KERNEL_DIR}/arch/arm64/boot/Image.gz" "${BOOT_DIR}/switchroot/debian/uImage"
 
 # 4. Tabla de Device Trees compilada (nx-plat.dtimg) para Switch V1, V2, Lite y OLED

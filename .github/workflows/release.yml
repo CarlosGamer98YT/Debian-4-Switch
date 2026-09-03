@@ -37,14 +37,24 @@ jobs:
         run: |
           python3 tools/bump_version.py RELEASE_NOTES.md
 
-      - name: Install System Packaging Tools
+      - name: Install System Prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y e2fsprogs zip
+          sudo apt-get install -y \
+            debootstrap mmdebstrap qemu-user-static binfmt-support \
+            git build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            bison flex libssl-dev bc libncurses-dev kmod \
+            dosfstools parted rsync u-boot-tools e2fsprogs zip \
+            p7zip-full curl
+          which 7z >/dev/null 2>&1 || sudo apt-get install -y 7zip || true
+
+      - name: Build Debian 13 RootFS and Kernel
+        run: |
+          chmod +x build.sh autoinstall_prerequisites.sh pack_l4t_installer.sh tools/*.py tools/*.sh
+          sudo -E ./build.sh
 
       - name: Run L4T Packaging Script
         run: |
-          chmod +x pack_l4t_installer.sh tools/pack_l4t_installer.sh
           ./pack_l4t_installer.sh
 
       - name: Push Git Tag
