@@ -7,6 +7,7 @@
 set -euo pipefail
 
 CWD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${CWD}"
 WORKDIR="${CWD}/build_output"
 ROOTFS_DIR="${WORKDIR}/rootfs"
 BOOT_DIR="${WORKDIR}/boot_fat32"
