@@ -370,7 +370,7 @@ Section "InputClass"
     MatchProduct "st_stmfts_touchscreen"
     MatchDevicePath "/dev/input/event*"
     Driver "libinput"
-    Option "TransformationMatrix" "0 -1 1 1 0 0 0 0 1"
+    Option "TransformationMatrix" "1 0 0 0 1 0 0 0 1"
     Option "SendCoreEvents" "true"
     Option "TapButton1" "1"
 EndSection
@@ -380,7 +380,9 @@ Section "InputClass"
     MatchProduct "Goodix Capacitive TouchScreen"
     MatchDevicePath "/dev/input/event*"
     Driver "libinput"
-    Option "TransformationMatrix" "0 -1 1 1 0 0 0 0 1"
+    Option "TransformationMatrix" "1 0 0 0 1 0 0 0 1"
+    Option "SendCoreEvents" "true"
+    Option "TapButton1" "1"
 EndSection
 
 Section "InputClass"
@@ -388,9 +390,14 @@ Section "InputClass"
     MatchProduct "touchscreen"
     MatchDevicePath "/dev/input/event*"
     Driver "libinput"
-    Option "TransformationMatrix" "0 -1 1 1 0 0 0 0 1"
+    Option "TransformationMatrix" "1 0 0 0 1 0 0 0 1"
+    Option "SendCoreEvents" "true"
+    Option "TapButton1" "1"
 EndSection
 EOF
+
+mkdir -p "${ROOTFS_DIR}/etc/default"
+echo "normal" > "${ROOTFS_DIR}/etc/default/switch-rotation"
 
 # 4. Teclado Virtual en Pantalla (Onboard) en Autostart de XFCE
 mkdir -p "${ROOTFS_DIR}/etc/xdg/autostart"
