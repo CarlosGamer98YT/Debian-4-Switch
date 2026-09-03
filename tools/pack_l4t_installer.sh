@@ -60,6 +60,9 @@ mkdir -p "${OUTPUT_DIR}" "${INSTALL_STAGE}/switchroot/install"
 # Crear imagen ext4 etiquetada SWR-DEB directamente a partir del rootfs
 "$MKE2FS" -t ext4 -d "${ROOTFS_DIR}" -L "SWR-DEB" -b 4096 -O extents,uninit_bg,dir_index "${IMG_FILE}" 5120M
 
+echo "[*] Normalizando propietarios (UID 0: GID 0) y permisos SUID en la imagen ext4..."
+python3 "${SCRIPT_DIR}/fix_ext4_perms.py" "${IMG_FILE}" "${ROOTFS_DIR}"
+
 echo "[2/4] Dividiendo imagen para Hekate Nyx (partes alineadas a 4 MiB)..."
 # 4092 MiB = 4290772992 bytes (múltiplo estricto de 4 MiB, compatible con FAT32 y Hekate Nyx)
 rm -f "${INSTALL_STAGE}/switchroot/install"/l4t.*
