@@ -1,0 +1,71 @@
+name: Build & Publish Switchroot Release
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Installer and Create Release
+    runs-on: ubuntu-latest
+    env:
+      DESKTOP_ENV: xfce4
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Calculate Next Version & Generate Changelog
+        id: bump
+        run: |
+          python3 tools/bump_version.py RELEASE_NOTES.md
+
+      - name: Install System Packaging Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y e2fsprogs zip
+
+      - name: Run L4T Packaging Script
+        run: |
+          chmod +x pack_l4t_installer.sh tools/pack_l4t_installer.sh
+          ./pack_l4t_installer.sh
+
+      - name: Push Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.bump.outputs.tag }}"
+          git push origin "${{ steps.bump.outputs.tag }}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.tag }}
+          name: "Switchroot Debian 13 (Trixie) [${{ env.DESKTOP_ENV }}] ${{ steps.bump.outputs.tag }}"
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: |
+            build_output/switch-debian-13-trixie-${{ env.DESKTOP_ENV }}-installer-hekate.zip
+            build_output/switch-debian-13-trixie-${{ env.DESKTOP_ENV }}-fat32.zip
+            build_output/switch-debian-13-trixie-${{ env.DESKTOP_ENV }}-rootfs.tar.gz
+            build_output/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

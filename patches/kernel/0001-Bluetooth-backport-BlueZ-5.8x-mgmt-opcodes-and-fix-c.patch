@@ -1,0 +1,261 @@
+From b80ea5bb2e53e768c606600d5c940292886aa55c Mon Sep 17 00:00:00 2001
+From: CarlosGamer98YT <carlitochaconero@gmail.com>
+Date: Wed, 2 Sep 2026 22:42:53 +0200
+Subject: [PATCH] Bluetooth: backport BlueZ 5.8x mgmt opcodes and fix
+ connection param check
+
+---
+ include/net/bluetooth/hci_core.h |   5 +-
+ include/net/bluetooth/mgmt.h     |  53 ++++++++++++
+ net/bluetooth/mgmt.c             | 134 +++++++++++++++++++++++++++++++
+ 3 files changed, 191 insertions(+), 1 deletion(-)
+
+diff --git a/include/net/bluetooth/hci_core.h b/include/net/bluetooth/hci_core.h
+index 3169c08c..cd4da64a 100644
+--- a/include/net/bluetooth/hci_core.h
++++ b/include/net/bluetooth/hci_core.h
+@@ -1386,7 +1386,10 @@ static inline int hci_check_conn_params(u16 min, u16 max, u16 latency,
+ {
+ 	u16 max_latency;
+ 
+-	if (min > max || min < 6 || max > 3200)
++	if (min < 6)
++		min = 6;
++
++	if (min > max || max > 3200)
+ 		return -EINVAL;
+ 
+ 	if (to_multiplier < 10 || to_multiplier > 3200)
+diff --git a/include/net/bluetooth/mgmt.h b/include/net/bluetooth/mgmt.h
+index 72a456bb..472cee63 100644
+--- a/include/net/bluetooth/mgmt.h
++++ b/include/net/bluetooth/mgmt.h
+@@ -604,6 +604,59 @@ struct mgmt_cp_set_appearance {
+ } __packed;
+ #define MGMT_SET_APPEARANCE_SIZE	2
+ 
++#define MGMT_OP_READ_EXP_FEATURES_INFO	0x0047
++#define MGMT_READ_EXP_FEATURES_INFO_SIZE 0
++struct mgmt_rp_read_exp_features_info {
++	__le16 feature_count;
++} __packed;
++
++#define MGMT_OP_SET_EXP_FEATURE		0x0048
++#define MGMT_SET_EXP_FEATURE_SIZE	17
++struct mgmt_cp_set_exp_feature {
++	__u8   uuid[16];
++	__u8   action;
++} __packed;
++
++#define MGMT_OP_GET_DEVICE_FLAGS	0x004F
++#define MGMT_GET_DEVICE_FLAGS_SIZE	7
++struct mgmt_cp_get_device_flags {
++	struct mgmt_addr_info addr;
++} __packed;
++struct mgmt_rp_get_device_flags {
++	struct mgmt_addr_info addr;
++	__le32 supported_flags;
++	__le32 current_flags;
++} __packed;
++
++#define MGMT_OP_SET_DEVICE_FLAGS	0x0050
++#define MGMT_SET_DEVICE_FLAGS_SIZE	11
++struct mgmt_cp_set_device_flags {
++	struct mgmt_addr_info addr;
++	__le32 current_flags;
++} __packed;
++struct mgmt_rp_set_device_flags {
++	struct mgmt_addr_info addr;
++} __packed;
++
++#define MGMT_OP_READ_ADV_MONITOR_FEATURES 0x0051
++#define MGMT_READ_ADV_MONITOR_FEATURES_SIZE 0
++struct mgmt_rp_read_adv_monitor_features {
++	__le32 supported_features;
++	__le32 enabled_features;
++	__le16 max_num_handles;
++	__u8   max_num_patterns;
++	__le16 num_handles;
++} __packed;
++
++#define MGMT_OP_REMOVE_ADV_MONITOR	0x0053
++#define MGMT_REMOVE_ADV_MONITOR_SIZE	2
++struct mgmt_cp_remove_adv_monitor {
++	__le16 monitor_handle;
++} __packed;
++struct mgmt_rp_remove_adv_monitor {
++	__le16 monitor_handle;
++} __packed;
++
+ #define MGMT_EV_CMD_COMPLETE		0x0001
+ struct mgmt_ev_cmd_complete {
+ 	__le16	opcode;
+diff --git a/net/bluetooth/mgmt.c b/net/bluetooth/mgmt.c
+index bca1408f..f93addfa 100644
+--- a/net/bluetooth/mgmt.c
++++ b/net/bluetooth/mgmt.c
+@@ -106,6 +106,12 @@ static const u16 mgmt_commands[] = {
+ 	MGMT_OP_START_LIMITED_DISCOVERY,
+ 	MGMT_OP_READ_EXT_INFO,
+ 	MGMT_OP_SET_APPEARANCE,
++	MGMT_OP_READ_EXP_FEATURES_INFO,
++	MGMT_OP_SET_EXP_FEATURE,
++	MGMT_OP_GET_DEVICE_FLAGS,
++	MGMT_OP_SET_DEVICE_FLAGS,
++	MGMT_OP_READ_ADV_MONITOR_FEATURES,
++	MGMT_OP_REMOVE_ADV_MONITOR,
+ };
+ 
+ static const u16 mgmt_events[] = {
+@@ -153,6 +159,7 @@ static const u16 mgmt_untrusted_commands[] = {
+ 	MGMT_OP_READ_CONFIG_INFO,
+ 	MGMT_OP_READ_EXT_INDEX_LIST,
+ 	MGMT_OP_READ_EXT_INFO,
++	MGMT_OP_READ_EXP_FEATURES_INFO,
+ };
+ 
+ static const u16 mgmt_untrusted_events[] = {
+@@ -6448,6 +6455,114 @@ static int get_adv_size_info(struct sock *sk, struct hci_dev *hdev,
+ 	return err;
+ }
+ 
++static int read_exp_features_info(struct sock *sk, struct hci_dev *hdev,
++				  void *data, u16 data_len)
++{
++	struct mgmt_rp_read_exp_features_info rp;
++
++	BT_DBG("sock %p", sk);
++
++	memset(&rp, 0, sizeof(rp));
++	return mgmt_cmd_complete(sk, hdev ? hdev->id : MGMT_INDEX_NONE,
++				 MGMT_OP_READ_EXP_FEATURES_INFO,
++				 MGMT_STATUS_SUCCESS, &rp, sizeof(rp));
++}
++
++static int set_exp_feature(struct sock *sk, struct hci_dev *hdev,
++			   void *data, u16 data_len)
++{
++	BT_DBG("sock %p", sk);
++
++	return mgmt_cmd_status(sk, hdev ? hdev->id : MGMT_INDEX_NONE,
++			       MGMT_OP_SET_EXP_FEATURE,
++			       MGMT_STATUS_NOT_SUPPORTED);
++}
++
++static int get_device_flags(struct sock *sk, struct hci_dev *hdev,
++			    void *data, u16 data_len)
++{
++	struct mgmt_cp_get_device_flags *cp = data;
++	struct mgmt_rp_get_device_flags rp;
++
++	BT_DBG("sock %p", sk);
++
++	if (!hdev)
++		return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
++				       MGMT_OP_GET_DEVICE_FLAGS,
++				       MGMT_STATUS_INVALID_INDEX);
++
++	memset(&rp, 0, sizeof(rp));
++	bacpy(&rp.addr.bdaddr, &cp->addr.bdaddr);
++	rp.addr.type = cp->addr.type;
++	rp.supported_flags = cpu_to_le32(7);
++	rp.current_flags = cpu_to_le32(0);
++
++	return mgmt_cmd_complete(sk, hdev->id,
++				 MGMT_OP_GET_DEVICE_FLAGS,
++				 MGMT_STATUS_SUCCESS, &rp, sizeof(rp));
++}
++
++static int set_device_flags(struct sock *sk, struct hci_dev *hdev,
++			    void *data, u16 data_len)
++{
++	struct mgmt_cp_set_device_flags *cp = data;
++	struct mgmt_rp_set_device_flags rp;
++
++	BT_DBG("sock %p", sk);
++
++	if (!hdev)
++		return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
++				       MGMT_OP_SET_DEVICE_FLAGS,
++				       MGMT_STATUS_INVALID_INDEX);
++
++	memset(&rp, 0, sizeof(rp));
++	bacpy(&rp.addr.bdaddr, &cp->addr.bdaddr);
++	rp.addr.type = cp->addr.type;
++
++	return mgmt_cmd_complete(sk, hdev->id,
++				 MGMT_OP_SET_DEVICE_FLAGS,
++				 MGMT_STATUS_SUCCESS, &rp, sizeof(rp));
++}
++
++static int read_adv_monitor_features(struct sock *sk, struct hci_dev *hdev,
++				     void *data, u16 data_len)
++{
++	struct mgmt_rp_read_adv_monitor_features rp;
++
++	BT_DBG("sock %p", sk);
++
++	if (!hdev)
++		return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
++				       MGMT_OP_READ_ADV_MONITOR_FEATURES,
++				       MGMT_STATUS_INVALID_INDEX);
++
++	memset(&rp, 0, sizeof(rp));
++	return mgmt_cmd_complete(sk, hdev->id,
++				 MGMT_OP_READ_ADV_MONITOR_FEATURES,
++				 MGMT_STATUS_SUCCESS, &rp, sizeof(rp));
++}
++
++static int remove_adv_monitor(struct sock *sk, struct hci_dev *hdev,
++			      void *data, u16 data_len)
++{
++	struct mgmt_cp_remove_adv_monitor *cp = data;
++	struct mgmt_rp_remove_adv_monitor rp;
++
++	BT_DBG("sock %p", sk);
++
++	if (!hdev)
++		return mgmt_cmd_status(sk, MGMT_INDEX_NONE,
++				       MGMT_OP_REMOVE_ADV_MONITOR,
++				       MGMT_STATUS_INVALID_INDEX);
++
++	memset(&rp, 0, sizeof(rp));
++	rp.monitor_handle = cp->monitor_handle;
++
++	return mgmt_cmd_complete(sk, hdev->id,
++				 MGMT_OP_REMOVE_ADV_MONITOR,
++				 MGMT_STATUS_SUCCESS, &rp, sizeof(rp));
++}
++
+ static const struct hci_mgmt_handler mgmt_handlers[] = {
+ 	{ NULL }, /* 0x0000 (no command) */
+ 	{ read_version,            MGMT_READ_VERSION_SIZE,
+@@ -6540,6 +6655,25 @@ static const struct hci_mgmt_handler mgmt_handlers[] = {
+ 	{ read_ext_controller_info,MGMT_READ_EXT_INFO_SIZE,
+ 						HCI_MGMT_UNTRUSTED },
+ 	{ set_appearance,	   MGMT_SET_APPEARANCE_SIZE },
++	{ NULL }, /* 0x0044 */
++	{ NULL }, /* 0x0045 */
++	{ NULL }, /* 0x0046 */
++	{ read_exp_features_info,  MGMT_READ_EXP_FEATURES_INFO_SIZE,
++						HCI_MGMT_NO_HDEV |
++						HCI_MGMT_UNTRUSTED }, /* 0x0047 */
++	{ set_exp_feature,         MGMT_SET_EXP_FEATURE_SIZE,
++						HCI_MGMT_VAR_LEN }, /* 0x0048 */
++	{ NULL }, /* 0x0049 */
++	{ NULL }, /* 0x004a */
++	{ NULL }, /* 0x004b */
++	{ NULL }, /* 0x004c */
++	{ NULL }, /* 0x004d */
++	{ NULL }, /* 0x004e */
++	{ get_device_flags,        MGMT_GET_DEVICE_FLAGS_SIZE }, /* 0x004f */
++	{ set_device_flags,        MGMT_SET_DEVICE_FLAGS_SIZE }, /* 0x0050 */
++	{ read_adv_monitor_features, MGMT_READ_ADV_MONITOR_FEATURES_SIZE }, /* 0x0051 */
++	{ NULL }, /* 0x0052 */
++	{ remove_adv_monitor,      MGMT_REMOVE_ADV_MONITOR_SIZE }, /* 0x0053 */
+ };
+ 
+ void mgmt_index_added(struct hci_dev *hdev)
+-- 
+2.47.3
+

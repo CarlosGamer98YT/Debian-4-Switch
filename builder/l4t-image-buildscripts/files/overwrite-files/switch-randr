@@ -1,0 +1,14 @@
+#!/bin/bash
+
+forks() {
+		sleep 8
+		if grep -q 1 "/sys/class/switch/dp/state"; then
+				xrandr --output DSI-0 --off --output DP-0 --primary --auto
+		else
+				xrandr --output DP-0 --off --output DSI-0 --primary --auto
+		fi
+		feh --bg-fill --no-fehbg /usr/share/backgrounds/warty-final-ubuntu.png
+}
+
+forks&
+disown
