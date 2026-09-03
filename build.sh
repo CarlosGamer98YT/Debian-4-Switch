@@ -129,9 +129,14 @@ DEBS_DIR="${DOWNLOADS_DIR}/switch-debs"
 mkdir -p "${DEBS_DIR}"
 BASE_URL="https://theofficialgman.github.io/l4t-debs"
 
+if [ ! -f "${DEBS_DIR}/Packages" ]; then
+  echo "  -> Descargando índice de paquetes L4T..."
+  curl -sL "${BASE_URL}/dists/l4t/jammy/binary-arm64/Packages.gz" | gzip -dc > "${DEBS_DIR}/Packages"
+fi
+
 for pkg in joycond nvidia-l4t-3d-core nvidia-l4t-configs nvidia-l4t-core nvidia-l4t-firmware nvidia-l4t-init nvidia-l4t-multimedia nvidia-l4t-multimedia-utils nvidia-l4t-x11 switch-alsa-ucm2 switch-bsp switch-dock-handler switch-joystick-mouse switch-touch-rules switch-l4t-configs; do
   if ! ls "${DEBS_DIR}/${pkg}"*.deb 1> /dev/null 2>&1; then
-    url=$(curl -sL "${BASE_URL}/dists/l4t/jammy/binary-arm64/Packages.gz" | zcat | awk -v p="$pkg" '$1=="Package:" && $2==p {found=1} found && $1=="Filename:" {print $2; exit}')
+    url=$(awk -v p="$pkg" '$1=="Package:" && $2==p {found=1} found && $1=="Filename:" {print $2; exit}' "${DEBS_DIR}/Packages" || true)
     if [ -n "$url" ]; then
       echo "  -> Descargando $pkg..."
       curl -sL -o "${DEBS_DIR}/${pkg}.deb" "${BASE_URL}/${url}"
