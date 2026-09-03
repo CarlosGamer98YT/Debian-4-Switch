@@ -32,6 +32,27 @@ if [ ! -x "$MKE2FS" ]; then
     exit 1
 fi
 
+echo "[*] Asegurando propiedad root:root (UID 0: GID 0) y permisos de seguridad en RootFS..."
+if [ "$(id -u)" -eq 0 ]; then
+    chown -R 0:0 "${ROOTFS_DIR}" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/home/switch" ] && chown -R 1000:1000 "${ROOTFS_DIR}/home/switch" 2>/dev/null || true
+    chown 0:0 "${ROOTFS_DIR}/etc/sudoers" "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
+    chown -R 0:0 "${ROOTFS_DIR}/etc/sudoers.d" 2>/dev/null || true
+    chmod 0440 "${ROOTFS_DIR}/etc/sudoers" 2>/dev/null || true
+    chmod 0440 "${ROOTFS_DIR}/etc/sudoers.d"/* 2>/dev/null || true
+    [ -f "${ROOTFS_DIR}/etc/sudo.conf" ] && chmod 0644 "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
+    chmod 4755 "${ROOTFS_DIR}/usr/bin/sudo" "${ROOTFS_DIR}/usr/bin/su" 2>/dev/null || true
+elif command -v sudo >/dev/null 2>&1; then
+    sudo chown -R 0:0 "${ROOTFS_DIR}" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/home/switch" ] && sudo chown -R 1000:1000 "${ROOTFS_DIR}/home/switch" 2>/dev/null || true
+    sudo chown 0:0 "${ROOTFS_DIR}/etc/sudoers" "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
+    sudo chown -R 0:0 "${ROOTFS_DIR}/etc/sudoers.d" 2>/dev/null || true
+    sudo chmod 0440 "${ROOTFS_DIR}/etc/sudoers" 2>/dev/null || true
+    sudo chmod 0440 "${ROOTFS_DIR}/etc/sudoers.d"/* 2>/dev/null || true
+    [ -f "${ROOTFS_DIR}/etc/sudo.conf" ] && sudo chmod 0644 "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
+    sudo chmod 4755 "${ROOTFS_DIR}/usr/bin/sudo" "${ROOTFS_DIR}/usr/bin/su" 2>/dev/null || true
+fi
+
 echo "[1/4] Creando imagen de sistema de archivos ext4 (5120 MiB)..."
 rm -f "${IMG_FILE}"
 mkdir -p "${OUTPUT_DIR}" "${INSTALL_STAGE}/switchroot/install"

@@ -1500,25 +1500,44 @@ echo "  -> Creando ${RELEASE_FAT32}..."
 
 echo "  -> Creando ${RELEASE_ROOTFS} con propietario root (UID 0: GID 0) y SUID preservados..."
 
-# 1. Asegurar SUID en binarios clave en el árbol
-chmod 4755 "${ROOTFS_DIR}/usr/bin/sudo" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/bin/su" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/bin/passwd" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/bin/gpasswd" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/bin/newgrp" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/bin/chsh" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/bin/chfn" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
-chmod 4754 "${ROOTFS_DIR}/usr/lib/dbus-1.0/dbus-daemon-launch-helper" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/lib/polkit-1/polkit-agent-helper-1" 2>/dev/null || true
-chmod 4755 "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/polkit-1/polkit-agent-helper-1" 2>/dev/null || true
+echo "  -> Normalizando propietarios (root:root / UID 0: GID 0) en RootFS..."
+chown -R 0:0 "${ROOTFS_DIR}" 2>/dev/null || true
+if [ -d "${ROOTFS_DIR}/home/switch" ]; then
+    chown -R 1000:1000 "${ROOTFS_DIR}/home/switch" 2>/dev/null || true
+fi
 
-# 2. Permisos de sudoers
+# 1. Asegurar SUID y permisos en binarios clave en el árbol
+chown 0:0 "${ROOTFS_DIR}/etc/sudoers" "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
+chown -R 0:0 "${ROOTFS_DIR}/etc/sudoers.d" 2>/dev/null || true
 chmod 0440 "${ROOTFS_DIR}/etc/sudoers" 2>/dev/null || true
 chmod 0440 "${ROOTFS_DIR}/etc/sudoers.d"/* 2>/dev/null || true
+[ -f "${ROOTFS_DIR}/etc/sudo.conf" ] && chmod 0644 "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
 
-# 3. Configurar tmpfiles.d para asegurar permisos dinámicos de /home/switch (1000:1000), /tmp (1777) y /var/lib/lightdm en arranque
+for suid_bin in \
+    "${ROOTFS_DIR}/usr/bin/sudo" \
+    "${ROOTFS_DIR}/usr/bin/su" \
+    "${ROOTFS_DIR}/usr/bin/passwd" \
+    "${ROOTFS_DIR}/usr/bin/gpasswd" \
+    "${ROOTFS_DIR}/usr/bin/newgrp" \
+    "${ROOTFS_DIR}/usr/bin/chsh" \
+    "${ROOTFS_DIR}/usr/bin/chfn" \
+    "${ROOTFS_DIR}/usr/bin/crontab" \
+    "${ROOTFS_DIR}/usr/lib/xorg/Xorg" \
+    "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" \
+    "${ROOTFS_DIR}/usr/lib/polkit-1/polkit-agent-helper-1" \
+    "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/polkit-1/polkit-agent-helper-1"; do
+    if [ -f "$suid_bin" ]; then
+        chown 0:0 "$suid_bin" 2>/dev/null || true
+        chmod 4755 "$suid_bin" 2>/dev/null || true
+    fi
+done
+
+if [ -f "${ROOTFS_DIR}/usr/lib/dbus-1.0/dbus-daemon-launch-helper" ]; then
+    chown 0:0 "${ROOTFS_DIR}/usr/lib/dbus-1.0/dbus-daemon-launch-helper" 2>/dev/null || true
+    chmod 4754 "${ROOTFS_DIR}/usr/lib/dbus-1.0/dbus-daemon-launch-helper" 2>/dev/null || true
+fi
+
+# 2. Configurar tmpfiles.d para asegurar permisos dinámicos de /home/switch (1000:1000), /tmp (1777), sudoers y lightdm en arranque
 mkdir -p "${ROOTFS_DIR}/etc/tmpfiles.d"
 cat << 'EOF' > "${ROOTFS_DIR}/etc/tmpfiles.d/switch-user.conf"
 # Type Path Mode UID GID Age Argument
@@ -1538,7 +1557,36 @@ d /run/lightdm 0755 lightdm lightdm -
 Z /run/lightdm - lightdm lightdm -
 d /var/lib/nvpmodel 0777 root root -
 Z /var/lib/nvpmodel - root root -
+z /etc/sudoers 0440 root root -
+z /etc/sudoers.d 0750 root root -
+Z /etc/sudoers.d 0440 root root -
+z /etc/sudo.conf 0644 root root -
+z /usr/bin/sudo 4755 root root -
+z /usr/bin/su 4755 root root -
+z /usr/bin/passwd 4755 root root -
+z /usr/bin/crontab 4755 root root -
+z /usr/lib/polkit-1/polkit-agent-helper-1 4755 root root -
+z /usr/lib/aarch64-linux-gnu/polkit-1/polkit-agent-helper-1 4755 root root -
 EOF
+
+# 3. Servicio de arranque temprano para garantizar permisos correctos de sudo ante cualquier medio de instalación
+mkdir -p "${ROOTFS_DIR}/etc/systemd/system/sysinit.target.wants"
+cat << 'EOF' > "${ROOTFS_DIR}/etc/systemd/system/switch-fix-perms.service"
+[Unit]
+Description=Fix RootFS ownership and sudo permissions
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target systemd-tmpfiles-setup.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null || true'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
+EOF
+ln -sf /etc/systemd/system/switch-fix-perms.service "${ROOTFS_DIR}/etc/systemd/system/sysinit.target.wants/switch-fix-perms.service"
 
 # 4. Empaquetar forzando UID 0: GID 0 (root:root) en todos los encabezados tar
 (cd "${ROOTFS_DIR}" && tar --numeric-owner --owner=0 --group=0 -czf "${RELEASE_ROOTFS}" ./)
