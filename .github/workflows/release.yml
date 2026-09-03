@@ -27,6 +27,25 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Maximize Runner Disk Space
+        run: |
+          echo "=== Espacio en disco inicial ==="
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/graalvm
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo docker image prune --all --force 2>/dev/null || true
+          sudo apt-get clean 2>/dev/null || true
+          echo "=== Espacio en disco tras optimización ==="
+          df -h
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

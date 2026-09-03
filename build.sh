@@ -83,6 +83,9 @@ rm -rf "${ROOTFS_DIR}"
 mkdir -p "${ROOTFS_DIR}"
 /sbin/debugfs -R "rdump / ${ROOTFS_DIR}" "${ROOTFS_EXT4}" > /dev/null 2>&1 || true
 
+echo "  -> Liberando espacio de imágenes crudas temporales de Debian..."
+rm -f "${RAW_IMAGE}" "${ROOTFS_EXT4}" "${DOWNLOADS_DIR}/disk.raw" 2>/dev/null || true
+
 # ------------------------------------------------------------------------------
 # PASO 2: Compilación de Kernel Linux 4.9 L4T y Device Trees
 # ------------------------------------------------------------------------------
@@ -119,6 +122,9 @@ make -j"$(nproc)" Image.gz modules dtbs tegra-dtstree="../hardware/nvidia"
 
 echo "[*] Instalando módulos del kernel en RootFS..."
 make modules_install INSTALL_MOD_PATH="${ROOTFS_DIR}"
+echo "  -> Liberando espacio de objetos compilados intermedios del kernel..."
+find "${KERNEL_DIR}" -name "*.o" -delete 2>/dev/null || true
+rm -f "${KERNEL_DIR}/vmlinux" 2>/dev/null || true
 cd "${CWD}"
 
 # ------------------------------------------------------------------------------
@@ -150,6 +156,7 @@ for deb in "${DEBS_DIR}"/*.deb; do
     dpkg-deb -x "$deb" "${ROOTFS_DIR}"
   fi
 done
+rm -f "${DEBS_DIR}"/*.deb "${DEBS_DIR}/Packages" 2>/dev/null || true
 
 # Inyectar paquetes personalizados adaptados por el usuario
 for deb in "${WORKDIR}"/*.deb; do

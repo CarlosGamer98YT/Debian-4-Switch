@@ -61,9 +61,10 @@ echo "Generando checksums SHA256..."
 (cd "${INSTALL_STAGE}/switchroot/install" && sha256sum l4t.* > SHA256SUMS.txt)
 (cd "${BUILD_OUTPUT}" && sha256sum switch-debian-13-trixie-${DESKTOP_ENV}-* > SHA256SUMS.txt)
 
+# Liberar 5.1 GB eliminando stage temporal (el zip ya contiene las partes)
+rm -rf "${INSTALL_STAGE}"
+
 echo "========================================================"
 echo " [✓] Instalador Switchroot Hekate creado con éxito:"
 echo "     -> ${ZIP_OUT}"
-echo "     -> Partes L4T en ${INSTALL_STAGE}/switchroot/install/:"
-ls -lh "${INSTALL_STAGE}/switchroot/install/"
 echo "========================================================"
