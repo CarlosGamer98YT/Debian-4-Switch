@@ -726,6 +726,40 @@ cp "${ROOTFS_DIR}/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" "${R
 cp "${ROOTFS_DIR}/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" "${ROOTFS_DIR}/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
 cp "${ROOTFS_DIR}/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" "${ROOTFS_DIR}/home/switch/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
 
+# Configurar aplicaciones preferidas por defecto de XFCE (Navegador, Terminal, Gestor de Archivos)
+mkdir -p "${ROOTFS_DIR}/etc/xdg/xfce4" "${ROOTFS_DIR}/etc/skel/.config/xfce4" "${ROOTFS_DIR}/home/switch/.config/xfce4"
+cat << 'EOF' > "${ROOTFS_DIR}/etc/xdg/xfce4/helpers.rc"
+WebBrowser=firefox
+MailReader=thunderbird
+TerminalEmulator=xfce4-terminal
+FileManager=thunar
+EOF
+cp "${ROOTFS_DIR}/etc/xdg/xfce4/helpers.rc" "${ROOTFS_DIR}/etc/skel/.config/xfce4/helpers.rc"
+cp "${ROOTFS_DIR}/etc/xdg/xfce4/helpers.rc" "${ROOTFS_DIR}/home/switch/.config/xfce4/helpers.rc"
+
+# Configurar asociaciones MIME predeterminadas a nivel de sistema y usuario
+mkdir -p "${ROOTFS_DIR}/etc/xdg" "${ROOTFS_DIR}/etc/skel/.config" "${ROOTFS_DIR}/home/switch/.config"
+cat << 'EOF' > "${ROOTFS_DIR}/etc/xdg/mimeapps.list"
+[Default Applications]
+text/html=firefox-esr.desktop;
+x-scheme-handler/http=firefox-esr.desktop;
+x-scheme-handler/https=firefox-esr.desktop;
+x-scheme-handler/about=firefox-esr.desktop;
+x-scheme-handler/unknown=firefox-esr.desktop;
+inode/directory=thunar.desktop;
+EOF
+cp "${ROOTFS_DIR}/etc/xdg/mimeapps.list" "${ROOTFS_DIR}/etc/skel/.config/mimeapps.list"
+cp "${ROOTFS_DIR}/etc/xdg/mimeapps.list" "${ROOTFS_DIR}/home/switch/.config/mimeapps.list"
+
+# Alternativas globales del sistema para terminal y navegador
+mkdir -p "${ROOTFS_DIR}/etc/alternatives" "${ROOTFS_DIR}/usr/bin"
+ln -sf /usr/bin/xfce4-terminal "${ROOTFS_DIR}/etc/alternatives/x-terminal-emulator"
+ln -sf /etc/alternatives/x-terminal-emulator "${ROOTFS_DIR}/usr/bin/x-terminal-emulator"
+ln -sf /usr/bin/firefox "${ROOTFS_DIR}/etc/alternatives/x-www-browser"
+ln -sf /etc/alternatives/x-www-browser "${ROOTFS_DIR}/usr/bin/x-www-browser"
+ln -sf /usr/bin/firefox "${ROOTFS_DIR}/etc/alternatives/gnome-www-browser"
+ln -sf /etc/alternatives/gnome-www-browser "${ROOTFS_DIR}/usr/bin/gnome-www-browser"
+
 # Limpieza de archivos obsoletos en /etc/skel
 rm -f "${ROOTFS_DIR}/etc/skel/.config/monitors.xml"
 rm -f "${ROOTFS_DIR}/etc/skel/.config/unity-monitors.xml"
@@ -1598,7 +1632,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]
