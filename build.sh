@@ -1390,35 +1390,37 @@ if [ -f "${DOWNLOADS_DIR}/hekate_release.zip" ]; then
     7z x -y "${DOWNLOADS_DIR}/hekate_release.zip" -o"${BOOT_DIR}" > /dev/null
 fi
 
-# 2. Extraer bootstack L4T de switch-bsp (bl31.bin, bl33.bin, boot.scr, initramfs)
-echo "  -> Extrayendo bootstack L4T (bl31, bl33, boot.scr, initramfs)..."
-BSP_TMP="${WORKDIR}/bsp_bootstack"
-rm -rf "${BSP_TMP}"
-mkdir -p "${BSP_TMP}"
-dpkg-deb -x "${DEBS_DIR}"/switch-bsp_*.deb "${BSP_TMP}"
+# 2. Configurar bootstack L4T (bl31.bin, bl33.bin, boot.scr, initramfs)
+echo "  -> Configurando bootstack L4T (bl31, bl33, boot.scr, initramfs)..."
+BSP_BOOTSTACK="${ROOTFS_DIR}/opt/switchroot/bootstack"
 
-cp "${BSP_TMP}/opt/switchroot/bootstack/bl31.bin" "${BOOT_DIR}/switchroot/debian/bl31.bin"
-cp "${BSP_TMP}/opt/switchroot/bootstack/bl33.bin" "${BOOT_DIR}/switchroot/debian/bl33.bin"
-cp "${BSP_TMP}/opt/switchroot/bootstack/initramfs" "${BOOT_DIR}/switchroot/debian/initramfs"
+if [ -d "${BSP_BOOTSTACK}" ]; then
+    cp "${BSP_BOOTSTACK}/bl31.bin" "${BOOT_DIR}/switchroot/debian/bl31.bin"
+    cp "${BSP_BOOTSTACK}/bl33.bin" "${BOOT_DIR}/switchroot/debian/bl33.bin"
+    cp "${BSP_BOOTSTACK}/initramfs" "${BOOT_DIR}/switchroot/debian/initramfs"
+fi
+
 if [ -f "${DOWNLOADS_DIR}/switch-assets/bootlogo_debian.bmp" ]; then
     cp "${DOWNLOADS_DIR}/switch-assets/bootlogo_debian.bmp" "${BOOT_DIR}/switchroot/debian/bootlogo_debian.bmp"
-else
-    cp "${BSP_TMP}/opt/switchroot/bootstack/bootlogo_ubuntu.bmp" "${BOOT_DIR}/switchroot/debian/bootlogo_debian.bmp"
+elif [ -f "${BSP_BOOTSTACK}/bootlogo_ubuntu.bmp" ]; then
+    cp "${BSP_BOOTSTACK}/bootlogo_ubuntu.bmp" "${BOOT_DIR}/switchroot/debian/bootlogo_debian.bmp"
 fi
 
 if [ -f "${DOWNLOADS_DIR}/switch-assets/icon_debian.bmp" ]; then
     cp "${DOWNLOADS_DIR}/switch-assets/icon_debian.bmp" "${BOOT_DIR}/switchroot/debian/icon_debian.bmp"
-else
-    cp "${BSP_TMP}/opt/switchroot/bootstack/icon_ubuntu_hue.bmp" "${BOOT_DIR}/switchroot/debian/icon_debian.bmp"
+elif [ -f "${BSP_BOOTSTACK}/icon_ubuntu_hue.bmp" ]; then
+    cp "${BSP_BOOTSTACK}/icon_ubuntu_hue.bmp" "${BOOT_DIR}/switchroot/debian/icon_debian.bmp"
 fi
 
 MKIMAGE_BIN="$(command -v mkimage || echo "${TOOLS_DIR}/usr/bin/mkimage")"
 
 # Modificar boot.scr para agregar net.ifnames=0 (manteniendo nombre wlan0)
-tail -c +73 "${BSP_TMP}/opt/switchroot/bootstack/boot.scr" > "${WORKDIR}/boot.txt"
-sed -i 's/systemd.legacy_systemd_cgroup_controller=1/systemd.legacy_systemd_cgroup_controller=1 net.ifnames=0/' "${WORKDIR}/boot.txt"
-"${MKIMAGE_BIN}" -A arm64 -T script -C none -n "boot.scr" -d "${WORKDIR}/boot.txt" "${BOOT_DIR}/switchroot/debian/boot.scr"
-rm -f "${WORKDIR}/boot.txt"
+if [ -f "${BSP_BOOTSTACK}/boot.scr" ]; then
+    tail -c +73 "${BSP_BOOTSTACK}/boot.scr" > "${WORKDIR}/boot.txt"
+    sed -i 's/systemd.legacy_systemd_cgroup_controller=1/systemd.legacy_systemd_cgroup_controller=1 net.ifnames=0/' "${WORKDIR}/boot.txt"
+    "${MKIMAGE_BIN}" -A arm64 -T script -C none -n "boot.scr" -d "${WORKDIR}/boot.txt" "${BOOT_DIR}/switchroot/debian/boot.scr"
+    rm -f "${WORKDIR}/boot.txt"
+fi
 
 # 3. Kernel compilado uImage
 echo "  -> Generando uImage del kernel recién compilado y parchado..."
@@ -1433,29 +1435,17 @@ python3 "${TOOLS_DIR}/mkdtboimg.py" create "${BOOT_DIR}/switchroot/debian/nx-pla
     "${KERNEL_DIR}/arch/arm64/boot/dts/tegra210b01-vali.dtb" --id=0x56414C49 \
     "${KERNEL_DIR}/arch/arm64/boot/dts/tegra210b01-fric.dtb" --id=0x46524947
 
-# 5. Instalar módulos del kernel recién compilados y firmwares en el RootFS
-echo "  -> Instalando módulos de kernel compilados en RootFS..."
-cd "${KERNEL_DIR}"
-make modules_install INSTALL_MOD_PATH="${ROOTFS_DIR}"
-cd "${CWD}"
-
-if [ -f "${BSP_TMP}/opt/switchroot/modules.tar.gz" ]; then
+if [ -f "${ROOTFS_DIR}/opt/switchroot/modules.tar.gz" ]; then
     echo "  -> Extrayendo firmware oficial en RootFS..."
     TAR_MOD_TMP="${WORKDIR}/tar_mod_tmp"
     rm -rf "${TAR_MOD_TMP}"
     mkdir -p "${TAR_MOD_TMP}"
-    tar -xzpf "${BSP_TMP}/opt/switchroot/modules.tar.gz" -C "${TAR_MOD_TMP}"
+    tar -xzpf "${ROOTFS_DIR}/opt/switchroot/modules.tar.gz" -C "${TAR_MOD_TMP}"
     
     mkdir -p "${ROOTFS_DIR}/usr/lib/firmware" "${ROOTFS_DIR}/lib/firmware"
     if [ -d "${TAR_MOD_TMP}/firmware" ]; then
         cp -rn "${TAR_MOD_TMP}/firmware"/* "${ROOTFS_DIR}/usr/lib/firmware/" 2>/dev/null || true
         cp -rn "${TAR_MOD_TMP}/firmware"/* "${ROOTFS_DIR}/lib/firmware/" 2>/dev/null || true
-    fi
-    if [ -d "${NOBLE_ROOT}/lib/firmware/tegra21x" ]; then
-        cp -rn "${NOBLE_ROOT}/lib/firmware/tegra21x" "${ROOTFS_DIR}/usr/lib/firmware/" 2>/dev/null || true
-        cp -rn "${NOBLE_ROOT}/lib/firmware/tegra21x" "${ROOTFS_DIR}/lib/firmware/" 2>/dev/null || true
-        cp -f "${NOBLE_ROOT}/lib/firmware/tegra21"* "${ROOTFS_DIR}/usr/lib/firmware/" 2>/dev/null || true
-        cp -f "${NOBLE_ROOT}/lib/firmware/tegra21"* "${ROOTFS_DIR}/lib/firmware/" 2>/dev/null || true
     fi
     rm -rf "${TAR_MOD_TMP}"
 fi
