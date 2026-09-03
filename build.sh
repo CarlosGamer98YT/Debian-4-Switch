@@ -1064,25 +1064,23 @@ fi
 # Suite de Overclock (NVPModel) y Control de Rendimiento de Nintendo Switch
 # ------------------------------------------------------------------------------
 echo "  -> Configurando suite de Overclock y NVPModel Indicator..."
-mkdir -p "${ROOTFS_DIR}/usr/share/nvpmodel_indicator" "${ROOTFS_DIR}/var/lib/nvpmodel" "${ROOTFS_DIR}/usr/share/polkit-1/actions"
+mkdir -p "${ROOTFS_DIR}/usr/share/nvpmodel_indicator" "${ROOTFS_DIR}/var/lib/nvpmodel" "${ROOTFS_DIR}/usr/share/polkit-1/actions" "${ROOTFS_DIR}/usr/local/bin"
 
 if [ -d "${NOBLE_ROOT}/usr/share/nvpmodel_indicator" ]; then
     cp -rn "${NOBLE_ROOT}/usr/share/nvpmodel_indicator"/* "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/" 2>/dev/null || true
 fi
-if [ -f "${NOBLE_ROOT}/usr/share/polkit-1/actions/com.nvidia.pkexec.nvpmodel.policy" ]; then
-    cp -f "${NOBLE_ROOT}/usr/share/polkit-1/actions/com.nvidia.pkexec.nvpmodel.policy" "${ROOTFS_DIR}/usr/share/polkit-1/actions/" 2>/dev/null || true
+
+# Instalar versión mejorada con control de ventilador al 100% y monitor en vivo en panel superior
+if [ -d "${REPO_DIR}/tools/nvpmodel_indicator" ]; then
+    cp -f "${REPO_DIR}/tools/nvpmodel_indicator/nvpmodel_indicator.py" "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/"
+    cp -f "${REPO_DIR}/tools/nvpmodel_indicator/nvpmodel_helper.sh" "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/"
+    cp -f "${REPO_DIR}/tools/nvpmodel_indicator/switch-sensors" "${ROOTFS_DIR}/usr/local/bin/switch-sensors"
+    cp -f "${REPO_DIR}/tools/nvpmodel_indicator/com.nvidia.pkexec.nvpmodel.policy" "${ROOTFS_DIR}/usr/share/polkit-1/actions/"
 fi
 
-# Compatibilidad con AyatanaAppIndicator3 y corrección de sintaxis en Python 3.12+
-if [ -f "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_indicator.py" ]; then
-    sed -i "s/gi.require_version('AppIndicator3', '0.1')/try:\n    gi.require_version('AppIndicator3', '0.1')\n    from gi.repository import AppIndicator3 as appindicator\nexcept Exception:\n    gi.require_version('AyatanaAppIndicator3', '0.1')\n    from gi.repository import AyatanaAppIndicator3 as appindicator/" "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_indicator.py" 2>/dev/null || true
-    sed -i "/from gi.repository import AppIndicator3 as appindicator/d" "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_indicator.py" 2>/dev/null || true
-    sed -i "s/no is not 0:/no != 0:/g" "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_indicator.py" 2>/dev/null || true
-    sed -i "s/no is 100:/no == 100:/g" "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_indicator.py" 2>/dev/null || true
-    sed -i 's/re.compile("(\\d+)")/re.compile(r"(\\d+)")/g' "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_indicator.py" 2>/dev/null || true
-    chmod 755 "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_indicator.py"
-fi
-[ -f "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_helper.sh" ] && chmod 755 "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_helper.sh"
+chmod 755 "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_indicator.py" 2>/dev/null || true
+chmod 755 "${ROOTFS_DIR}/usr/share/nvpmodel_indicator/nvpmodel_helper.sh" 2>/dev/null || true
+chmod 755 "${ROOTFS_DIR}/usr/local/bin/switch-sensors" 2>/dev/null || true
 
 # Pre-enlace de nvpmodel.conf
 [ -f "${ROOTFS_DIR}/etc/nvpmodel/nvpmodel_t210b01.conf" ] && ln -sf /etc/nvpmodel/nvpmodel_t210b01.conf "${ROOTFS_DIR}/etc/nvpmodel.conf"
@@ -1599,7 +1597,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]

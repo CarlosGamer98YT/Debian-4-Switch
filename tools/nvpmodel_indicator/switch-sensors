@@ -1,0 +1,36 @@
+#!/bin/bash
+# switch-sensors: Prints processor temperature and fan speed
+
+temp=""
+for tz in /sys/class/thermal/thermal_zone*; do
+    if [ -f "$tz/type" ]; then
+        name=$(cat "$tz/type" 2>/dev/null)
+        case "$name" in
+            *CPU*|*PLL*|*Tdiode*)
+                raw=$(cat "$tz/temp" 2>/dev/null)
+                if [ -n "$raw" ] && [ "$raw" -gt 0 ] 2>/dev/null; then
+                    temp="$((raw / 1000))°C"
+                    break
+                fi
+                ;;
+        esac
+    fi
+done
+[ -z "$temp" ] && [ -f /sys/class/thermal/thermal_zone0/temp ] && temp="$(( $(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 0) / 1000 ))°C"
+
+fan=""
+for p in /sys/devices/platform/pwm-fan /sys/bus/platform/devices/pwm-fan /sys/devices/pwm-fan; do
+    if [ -d "$p" ]; then
+        if [ -f "$p/rpm_measured" ]; then
+            rpm=$(cat "$p/rpm_measured" 2>/dev/null)
+            [ "$rpm" -gt 0 ] 2>/dev/null && fan="${rpm} RPM"
+        fi
+        if [ -z "$fan" ] && [ -f "$p/cur_pwm" ]; then
+            pwm=$(cat "$p/cur_pwm" 2>/dev/null)
+            [ -n "$pwm" ] && fan="$(( (pwm * 100) / 255 ))%"
+        fi
+        break
+    fi
+done
+
+echo "${temp:-N/A} | Fan: ${fan:-Auto}"
