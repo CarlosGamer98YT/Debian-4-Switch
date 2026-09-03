@@ -740,6 +740,8 @@ if [ -x /usr/local/bin/switch-rotate ]; then
         /usr/local/bin/switch-rotate "$(cat "${HOME}/.config/switch-rotation")" >/dev/null 2>&1 || true
     elif [ -f "/etc/default/switch-rotation" ]; then
         /usr/local/bin/switch-rotate "$(cat "/etc/default/switch-rotation")" >/dev/null 2>&1 || true
+    else
+        /usr/local/bin/switch-rotate "normal" >/dev/null 2>&1 || true
     fi
 fi
 EOF
@@ -750,6 +752,14 @@ mkdir -p "${ROOTFS_DIR}/usr/local/bin"
 cat << 'EOF' > "${ROOTFS_DIR}/usr/local/bin/switch-desktop-autostart.sh"
 #!/bin/bash
 # switch-desktop-autostart.sh: background services for Switchroot Debian
+
+# 0. Asegurar mapeo táctil correcto 1:1 en orientation handheld para cualquier usuario
+if [ -x /usr/local/bin/switch-rotate ]; then
+    ROT_STATE="normal"
+    [ -f "${HOME}/.config/switch-rotation" ] && ROT_STATE="$(cat "${HOME}/.config/switch-rotation" 2>/dev/null)"
+    [ -f "/etc/default/switch-rotation" ] && [ ! -f "${HOME}/.config/switch-rotation" ] && ROT_STATE="$(cat "/etc/default/switch-rotation" 2>/dev/null)"
+    /usr/local/bin/switch-rotate "$ROT_STATE" >/dev/null 2>&1 || true
+fi
 
 # 1. Desbloquear y activar radios inalámbricas
 rfkill unblock all 2>/dev/null || true
@@ -1574,9 +1584,11 @@ z /usr/bin/passwd 4755 root root -
 z /usr/bin/crontab 4755 root root -
 z /usr/lib/polkit-1/polkit-agent-helper-1 4755 root root -
 z /usr/lib/aarch64-linux-gnu/polkit-1/polkit-agent-helper-1 4755 root root -
+d /var/cache/man 2755 man root -
+Z /var/cache/man - man root -
 EOF
 
-# 3. Servicio de arranque temprano para garantizar permisos correctos de sudo ante cualquier medio de instalación
+# 3. Servicio de arranque temprano para garantizar permisos correctos de sudo, man-db y orientación táctil ante cualquier medio
 mkdir -p "${ROOTFS_DIR}/etc/systemd/system/sysinit.target.wants"
 cat << 'EOF' > "${ROOTFS_DIR}/etc/systemd/system/switch-fix-perms.service"
 [Unit]
@@ -1587,7 +1599,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]

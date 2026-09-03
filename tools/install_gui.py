@@ -50,7 +50,7 @@ targets = [
     "sudo", "systemd", "systemd-sysv", "dbus", "dbus-x11", "dbus-user-session", "libpam-systemd",
     "policykit-1", "libgdk-pixbuf2.0-bin", "librsvg2-common", "shared-mime-info",
     "libpng16-16t64", "libjpeg62-turbo", "libtiff6",
-    "cron", "cron-daemon-common"
+    "cron", "cron-daemon-common", "locales", "libc-l10n", "man-db"
 ]
 
 to_install = {}

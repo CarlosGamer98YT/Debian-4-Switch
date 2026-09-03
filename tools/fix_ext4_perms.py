@@ -30,6 +30,7 @@ SPECIAL_PERMS = {
     "/etc/sudo.conf": 0o100644,
     "/tmp": 0o041777,
     "/var/tmp": 0o041777,
+    "/var/cache/man": 0o042755,
 }
 
 def escape_path(path):
@@ -65,10 +66,13 @@ def main():
                 rel_path = "/" + os.path.relpath(full_path, rootfs_dir).replace("\\", "/")
                 escaped = escape_path(rel_path)
                 
-                # Asignación de propietarios: switch (1000:1000) o root (0:0)
+                # Asignación de propietarios: switch (1000:1000), man (6:12) o root (0:0)
                 if rel_path.startswith("/home/switch"):
                     cmd_file.write(f"sif {escaped} uid 1000\n")
                     cmd_file.write(f"sif {escaped} gid 1000\n")
+                elif rel_path == "/var/cache/man" or rel_path.startswith("/var/cache/man/"):
+                    cmd_file.write(f"sif {escaped} uid 6\n")
+                    cmd_file.write(f"sif {escaped} gid 12\n")
                 else:
                     cmd_file.write(f"sif {escaped} uid 0\n")
                     cmd_file.write(f"sif {escaped} gid 0\n")
