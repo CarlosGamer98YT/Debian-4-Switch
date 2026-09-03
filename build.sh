@@ -1473,7 +1473,6 @@ for bdir in "${ROOTFS_DIR}/usr/lib/firmware/brcm" "${ROOTFS_DIR}/lib/firmware/br
         ln -sf BCM4356A3.hcd "$bdir/bcm4356.hcd" 2>/dev/null || true
     fi
 done
-rm -rf "${BSP_TMP}"
 
 # 5. Generar archivo de configuración debian.ini compatible con el motor L4T de Hekate
 cat << 'EOF' > "${BOOT_DIR}/bootloader/ini/debian.ini"
