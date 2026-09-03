@@ -23,15 +23,34 @@ def run_git(cmd):
         return ""
 
 def get_all_tags():
+    # Attempt to fetch all remote tags
+    run_git(['fetch', '--tags', 'origin'])
+    
+    # 1. Local tags
     out = run_git(['tag', '-l'])
-    if not out:
-        return []
+    raw_tags = set(out.splitlines()) if out else set()
+    
+    # 2. Remote tags via ls-remote as robust fallback
+    ls_out = run_git(['ls-remote', '--tags', 'origin'])
+    if ls_out:
+        for line in ls_out.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[1].startswith('refs/tags/'):
+                tag_name = parts[1].replace('refs/tags/', '').replace('^{}', '')
+                if tag_name:
+                    raw_tags.add(tag_name)
+                    
     tags = []
-    for line in out.splitlines():
+    seen = set()
+    for line in raw_tags:
         tag = line.strip().lstrip('v')
         m = re.match(r'^(\d+)\.(\d+)\.(\d+)$', tag)
         if m:
-            tags.append((int(m.group(1)), int(m.group(2)), int(m.group(3)), line.strip()))
+            entry = (int(m.group(1)), int(m.group(2)), int(m.group(3)), line.strip())
+            tup = (entry[0], entry[1], entry[2])
+            if tup not in seen:
+                seen.add(tup)
+                tags.append(entry)
     return tags
 
 def next_version(x, y, z):
