@@ -286,9 +286,13 @@ default-session=xfce
 keyboard=onboard
 EOF
 
-# Asegurar symlink alternativo de greeter para Debian (lightdm-greeter.desktop)
-mkdir -p "${ROOTFS_DIR}/usr/share/xgreeters"
+# Asegurar symlink alternativo de greeter para Debian (lightdm-greeter.desktop) y binarios en /usr/bin
+mkdir -p "${ROOTFS_DIR}/usr/share/xgreeters" "${ROOTFS_DIR}/usr/bin" "${ROOTFS_DIR}/etc/alternatives"
 ln -sf lightdm-gtk-greeter.desktop "${ROOTFS_DIR}/usr/share/xgreeters/lightdm-greeter.desktop" 2>/dev/null || true
+ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop "${ROOTFS_DIR}/etc/alternatives/lightdm-greeter" 2>/dev/null || true
+ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop "${ROOTFS_DIR}/etc/alternatives/lightdm-greeter.desktop" 2>/dev/null || true
+ln -sf /usr/sbin/lightdm-gtk-greeter "${ROOTFS_DIR}/usr/bin/lightdm-gtk-greeter" 2>/dev/null || true
+ln -sf /usr/sbin/lightdm-gtk-greeter "${ROOTFS_DIR}/usr/bin/lightdm-greeter" 2>/dev/null || true
 
 # Indicar default-display-manager a nivel de sistema X11
 echo "/usr/sbin/lightdm" > "${ROOTFS_DIR}/etc/X11/default-display-manager"
@@ -751,7 +755,7 @@ EOF
 cp "${ROOTFS_DIR}/etc/xdg/mimeapps.list" "${ROOTFS_DIR}/etc/skel/.config/mimeapps.list"
 cp "${ROOTFS_DIR}/etc/xdg/mimeapps.list" "${ROOTFS_DIR}/home/switch/.config/mimeapps.list"
 
-# Alternativas globales del sistema para terminal y navegador
+# Alternativas globales del sistema para terminal, navegador, sesión y gestor de ventanas
 mkdir -p "${ROOTFS_DIR}/etc/alternatives" "${ROOTFS_DIR}/usr/bin"
 ln -sf /usr/bin/xfce4-terminal "${ROOTFS_DIR}/etc/alternatives/x-terminal-emulator"
 ln -sf /etc/alternatives/x-terminal-emulator "${ROOTFS_DIR}/usr/bin/x-terminal-emulator"
@@ -759,6 +763,10 @@ ln -sf /usr/bin/firefox "${ROOTFS_DIR}/etc/alternatives/x-www-browser"
 ln -sf /etc/alternatives/x-www-browser "${ROOTFS_DIR}/usr/bin/x-www-browser"
 ln -sf /usr/bin/firefox "${ROOTFS_DIR}/etc/alternatives/gnome-www-browser"
 ln -sf /etc/alternatives/gnome-www-browser "${ROOTFS_DIR}/usr/bin/gnome-www-browser"
+ln -sf /usr/bin/xfce4-session "${ROOTFS_DIR}/etc/alternatives/x-session-manager"
+ln -sf /etc/alternatives/x-session-manager "${ROOTFS_DIR}/usr/bin/x-session-manager"
+ln -sf /usr/bin/xfwm4 "${ROOTFS_DIR}/etc/alternatives/x-window-manager"
+ln -sf /etc/alternatives/x-window-manager "${ROOTFS_DIR}/usr/bin/x-window-manager"
 
 # Limpieza de archivos obsoletos en /etc/skel
 rm -f "${ROOTFS_DIR}/etc/skel/.config/monitors.xml"
@@ -1632,7 +1640,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R 105:110 /var/lib/lightdm /var/cache/lightdm 2>/dev/null; chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]

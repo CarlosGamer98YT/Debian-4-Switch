@@ -36,6 +36,11 @@ echo "[*] Asegurando propiedad root:root (UID 0: GID 0) y permisos de seguridad 
 if [ "$(id -u)" -eq 0 ]; then
     chown -R 0:0 "${ROOTFS_DIR}" 2>/dev/null || true
     [ -d "${ROOTFS_DIR}/home/switch" ] && chown -R 1000:1000 "${ROOTFS_DIR}/home/switch" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/var/lib/lightdm" ] && chown -R 105:110 "${ROOTFS_DIR}/var/lib/lightdm" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/var/cache/lightdm" ] && chown -R 105:110 "${ROOTFS_DIR}/var/cache/lightdm" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/var/log/lightdm" ] && chown -R 105:0 "${ROOTFS_DIR}/var/log/lightdm" 2>/dev/null || true
+    chmod 755 "${ROOTFS_DIR}/var/lib/lightdm" "${ROOTFS_DIR}/var/cache/lightdm" "${ROOTFS_DIR}/var/log/lightdm" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/var/lib/lightdm/data" ] && chmod 750 "${ROOTFS_DIR}/var/lib/lightdm/data" 2>/dev/null || true
     chown 0:0 "${ROOTFS_DIR}/etc/sudoers" "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
     chown -R 0:0 "${ROOTFS_DIR}/etc/sudoers.d" 2>/dev/null || true
     chmod 0440 "${ROOTFS_DIR}/etc/sudoers" 2>/dev/null || true
@@ -45,6 +50,11 @@ if [ "$(id -u)" -eq 0 ]; then
 elif command -v sudo >/dev/null 2>&1; then
     sudo chown -R 0:0 "${ROOTFS_DIR}" 2>/dev/null || true
     [ -d "${ROOTFS_DIR}/home/switch" ] && sudo chown -R 1000:1000 "${ROOTFS_DIR}/home/switch" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/var/lib/lightdm" ] && sudo chown -R 105:110 "${ROOTFS_DIR}/var/lib/lightdm" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/var/cache/lightdm" ] && sudo chown -R 105:110 "${ROOTFS_DIR}/var/cache/lightdm" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/var/log/lightdm" ] && sudo chown -R 105:0 "${ROOTFS_DIR}/var/log/lightdm" 2>/dev/null || true
+    sudo chmod 755 "${ROOTFS_DIR}/var/lib/lightdm" "${ROOTFS_DIR}/var/cache/lightdm" "${ROOTFS_DIR}/var/log/lightdm" 2>/dev/null || true
+    [ -d "${ROOTFS_DIR}/var/lib/lightdm/data" ] && sudo chmod 750 "${ROOTFS_DIR}/var/lib/lightdm/data" 2>/dev/null || true
     sudo chown 0:0 "${ROOTFS_DIR}/etc/sudoers" "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
     sudo chown -R 0:0 "${ROOTFS_DIR}/etc/sudoers.d" 2>/dev/null || true
     sudo chmod 0440 "${ROOTFS_DIR}/etc/sudoers" 2>/dev/null || true
