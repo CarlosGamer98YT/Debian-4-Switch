@@ -245,7 +245,8 @@ user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
 autologin-inhibit=false
-xserver-command=X -core -noreset -ignoreABI
+xserver-command=X -core
+session-wrapper=/etc/X11/Xsession
 EOF
 
 # Configuración complementaria en conf.d para asegurar precedencia
@@ -257,7 +258,8 @@ user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
 autologin-inhibit=false
-xserver-command=X -core -noreset -ignoreABI
+xserver-command=X -core
+session-wrapper=/etc/X11/Xsession
 EOF
 
 cat << 'EOF' > "${ROOTFS_DIR}/usr/share/lightdm/lightdm.conf.d/99-switch-autologin.conf"
@@ -268,7 +270,8 @@ user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
 autologin-inhibit=false
-xserver-command=X -core -noreset -ignoreABI
+xserver-command=X -core
+session-wrapper=/etc/X11/Xsession
 EOF
 
 # Configuración del Greeter GTK
@@ -434,6 +437,18 @@ mkdir -p "${ROOTFS_DIR}/var/lib/lightdm/data" "${ROOTFS_DIR}/var/cache/lightdm" 
 chown -R 105:110 "${ROOTFS_DIR}/var/lib/lightdm" "${ROOTFS_DIR}/var/cache/lightdm" "${ROOTFS_DIR}/run/lightdm" 2>/dev/null || true
 chmod 755 "${ROOTFS_DIR}/var/lib/lightdm" "${ROOTFS_DIR}/var/cache/lightdm" "${ROOTFS_DIR}/var/log/lightdm"
 chmod 750 "${ROOTFS_DIR}/var/lib/lightdm/data"
+
+# Asegurar que lightdm pertenezca a los grupos gráficos y de entrada necesarios
+for grp in video render input; do
+    if grep -q "^${grp}:" "${ROOTFS_DIR}/etc/group"; then
+        if ! grep "^${grp}:" "${ROOTFS_DIR}/etc/group" | grep -q "lightdm"; then
+            sed -i "s/^${grp}:.*/&,lightdm/" "${ROOTFS_DIR}/etc/group"
+            sed -i "s/:,lightdm/:lightdm/" "${ROOTFS_DIR}/etc/group"
+        fi
+    else
+        echo "${grp}:x:995:lightdm" >> "${ROOTFS_DIR}/etc/group"
+    fi
+done
 
 # Usuario switch
 if ! grep -q "^switch:" "${ROOTFS_DIR}/etc/passwd"; then
@@ -768,8 +783,33 @@ ln -sf /etc/alternatives/x-session-manager "${ROOTFS_DIR}/usr/bin/x-session-mana
 ln -sf /usr/bin/xfwm4 "${ROOTFS_DIR}/etc/alternatives/x-window-manager"
 ln -sf /etc/alternatives/x-window-manager "${ROOTFS_DIR}/usr/bin/x-window-manager"
 
-# Limpieza de archivos obsoletos en /etc/skel
-rm -f "${ROOTFS_DIR}/etc/skel/.config/monitors.xml"
+# Configuración de resolución y rotación de monitores para el usuario y LightDM
+mkdir -p "${ROOTFS_DIR}/etc/skel/.config" "${ROOTFS_DIR}/home/switch/.config" "${ROOTFS_DIR}/var/lib/lightdm/.config"
+cat << 'EOF' > "${ROOTFS_DIR}/etc/skel/.config/monitors.xml"
+<monitors version="1">
+  <configuration>
+      <clone>no</clone>
+      <output name="DSI-0">
+          <vendor>???</vendor>
+          <product>0x0000</product>
+          <serial>0x00000000</serial>
+          <width>1280</width>
+          <height>720</height>
+          <rate>60</rate>
+          <x>0</x>
+          <y>0</y>
+          <rotation>normal</rotation>
+          <reflect_x>no</reflect_x>
+          <reflect_y>no</reflect_y>
+          <primary>yes</primary>
+      </output>
+  </configuration>
+</monitors>
+EOF
+cp -f "${ROOTFS_DIR}/etc/skel/.config/monitors.xml" "${ROOTFS_DIR}/home/switch/.config/monitors.xml"
+cp -f "${ROOTFS_DIR}/etc/skel/.config/monitors.xml" "${ROOTFS_DIR}/var/lib/lightdm/.config/monitors.xml"
+chown -R 1000:1000 "${ROOTFS_DIR}/home/switch/.config" 2>/dev/null || true
+chown -R 105:110 "${ROOTFS_DIR}/var/lib/lightdm/.config" 2>/dev/null || true
 rm -f "${ROOTFS_DIR}/etc/skel/.config/unity-monitors.xml"
 rm -f "${ROOTFS_DIR}/etc/skel/.face" "${ROOTFS_DIR}/etc/skel/.face.icon"
 
@@ -1172,11 +1212,30 @@ EOF
 if [ -d "${NOBLE_ROOT}/usr/lib/xorg" ]; then
     echo "  -> Sincronizando servidor Xorg 1.20 (ABI 24.1) compatible con NVIDIA Tegra..."
     cp -a "${NOBLE_ROOT}/usr/lib/xorg" "${ROOTFS_DIR}/usr/lib/"
-    cp -a "${NOBLE_ROOT}/usr/bin/Xorg" "${ROOTFS_DIR}/usr/bin/" 2>/dev/null || true
     cp -a "${NOBLE_ROOT}/usr/bin/cvt" "${ROOTFS_DIR}/usr/bin/" 2>/dev/null || true
     cp -a "${NOBLE_ROOT}/usr/bin/gtf" "${ROOTFS_DIR}/usr/bin/" 2>/dev/null || true
     chmod 4755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" 2>/dev/null || true
-    chmod 4755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
+    chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
+
+    # Script de arranque de Xorg: si lo corre root (LightDM), ejecutar Xorg nativo directamente sin pasar por Xorg.wrap
+    cat << 'EOF' > "${ROOTFS_DIR}/usr/bin/Xorg"
+#!/bin/sh
+basedir=/usr/lib/xorg
+if [ "$(id -u)" = "0" ]; then
+    exec "$basedir"/Xorg "$@"
+elif [ -x "$basedir"/Xorg.wrap ]; then
+    exec "$basedir"/Xorg.wrap "$@"
+else
+    exec "$basedir"/Xorg "$@"
+fi
+EOF
+    chmod 755 "${ROOTFS_DIR}/usr/bin/Xorg"
+
+    # Parchear sintaxis incompatible con Debian en /etc/systemd/nv.sh
+    if [ -f "${ROOTFS_DIR}/etc/systemd/nv.sh" ]; then
+        echo "  -> Parcheando sintaxis Debian en /etc/systemd/nv.sh..."
+        sed -i 's/addgroup "\([^"]*\)" "\([^"]*\)"/adduser "\1" "\2" 2>\/dev\/null || addgroup "\1" "\2" 2>\/dev\/null || true/g' "${ROOTFS_DIR}/etc/systemd/nv.sh"
+    fi
 
     mkdir -p "${ROOTFS_DIR}/etc/apt/preferences.d"
     cat << 'EOF' > "${ROOTFS_DIR}/etc/apt/preferences.d/00-switch-xorg-restrictions"
@@ -1581,7 +1640,6 @@ for suid_bin in \
     "${ROOTFS_DIR}/usr/bin/chfn" \
     "${ROOTFS_DIR}/usr/bin/crontab" \
     "${ROOTFS_DIR}/usr/lib/xorg/Xorg" \
-    "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" \
     "${ROOTFS_DIR}/usr/lib/polkit-1/polkit-agent-helper-1" \
     "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/polkit-1/polkit-agent-helper-1"; do
     if [ -f "$suid_bin" ]; then
@@ -1589,6 +1647,8 @@ for suid_bin in \
         chmod 4755 "$suid_bin" 2>/dev/null || true
     fi
 done
+
+[ -f "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" ] && chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
 
 if [ -f "${ROOTFS_DIR}/usr/lib/dbus-1.0/dbus-daemon-launch-helper" ]; then
     chown 0:0 "${ROOTFS_DIR}/usr/lib/dbus-1.0/dbus-daemon-launch-helper" 2>/dev/null || true
@@ -1613,6 +1673,7 @@ d /var/log/lightdm 0755 lightdm root -
 Z /var/log/lightdm - lightdm root -
 d /run/lightdm 0755 lightdm lightdm -
 Z /run/lightdm - lightdm lightdm -
+d /run/polkit-1/rules.d 0755 root root -
 d /var/lib/nvpmodel 0777 root root -
 Z /var/lib/nvpmodel - root root -
 z /etc/sudoers 0440 root root -
@@ -1640,7 +1701,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; sed -i "s/-keeptty //g" /etc/lightdm/lightdm.conf /etc/lightdm/lightdm.conf.d/*.conf /usr/share/lightdm/lightdm.conf.d/*.conf 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chmod 0755 /usr/lib/xorg/Xorg.wrap 2>/dev/null; mkdir -p /run/polkit-1/rules.d 2>/dev/null; adduser lightdm video 2>/dev/null || true; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]
