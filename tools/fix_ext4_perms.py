@@ -19,7 +19,6 @@ SUID_BINARIES = {
     "/usr/bin/chfn": 0o104755,
     "/usr/bin/crontab": 0o104755,
     "/usr/lib/xorg/Xorg": 0o104755,
-    "/usr/lib/xorg/Xorg.wrap": 0o104755,
     "/usr/lib/polkit-1/polkit-agent-helper-1": 0o104755,
     "/usr/lib/aarch64-linux-gnu/polkit-1/polkit-agent-helper-1": 0o104755,
     "/usr/lib/dbus-1.0/dbus-daemon-launch-helper": 0o104754,
@@ -28,6 +27,7 @@ SUID_BINARIES = {
 SPECIAL_PERMS = {
     "/etc/sudoers": 0o100440,
     "/etc/sudo.conf": 0o100644,
+    "/usr/lib/xorg/Xorg.wrap": 0o100755,
     "/tmp": 0o041777,
     "/var/tmp": 0o041777,
     "/var/cache/man": 0o042755,

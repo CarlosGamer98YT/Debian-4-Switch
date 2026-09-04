@@ -47,7 +47,7 @@ if [ "$(id -u)" -eq 0 ]; then
     chmod 0440 "${ROOTFS_DIR}/etc/sudoers.d"/* 2>/dev/null || true
     [ -f "${ROOTFS_DIR}/etc/sudo.conf" ] && chmod 0644 "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
     chmod 4755 "${ROOTFS_DIR}/usr/bin/sudo" "${ROOTFS_DIR}/usr/bin/su" 2>/dev/null || true
-elif command -v sudo >/dev/null 2>&1; then
+elif sudo -n true 2>/dev/null; then
     sudo chown -R 0:0 "${ROOTFS_DIR}" 2>/dev/null || true
     [ -d "${ROOTFS_DIR}/home/switch" ] && sudo chown -R 1000:1000 "${ROOTFS_DIR}/home/switch" 2>/dev/null || true
     [ -d "${ROOTFS_DIR}/var/lib/lightdm" ] && sudo chown -R 105:110 "${ROOTFS_DIR}/var/lib/lightdm" 2>/dev/null || true
