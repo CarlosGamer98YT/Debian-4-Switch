@@ -47,6 +47,7 @@ if [ "$(id -u)" -eq 0 ]; then
     chmod 0440 "${ROOTFS_DIR}/etc/sudoers.d"/* 2>/dev/null || true
     [ -f "${ROOTFS_DIR}/etc/sudo.conf" ] && chmod 0644 "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
     chmod 4755 "${ROOTFS_DIR}/usr/bin/sudo" "${ROOTFS_DIR}/usr/bin/su" 2>/dev/null || true
+    chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
 elif sudo -n true 2>/dev/null; then
     sudo chown -R 0:0 "${ROOTFS_DIR}" 2>/dev/null || true
     [ -d "${ROOTFS_DIR}/home/switch" ] && sudo chown -R 1000:1000 "${ROOTFS_DIR}/home/switch" 2>/dev/null || true
@@ -61,6 +62,7 @@ elif sudo -n true 2>/dev/null; then
     sudo chmod 0440 "${ROOTFS_DIR}/etc/sudoers.d"/* 2>/dev/null || true
     [ -f "${ROOTFS_DIR}/etc/sudo.conf" ] && sudo chmod 0644 "${ROOTFS_DIR}/etc/sudo.conf" 2>/dev/null || true
     sudo chmod 4755 "${ROOTFS_DIR}/usr/bin/sudo" "${ROOTFS_DIR}/usr/bin/su" 2>/dev/null || true
+    sudo chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
 fi
 
 echo "[1/4] Creando imagen de sistema de archivos ext4 (5120 MiB)..."

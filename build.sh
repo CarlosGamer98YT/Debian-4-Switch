@@ -80,7 +80,8 @@ if [ ! -f "${ROOTFS_EXT4}" ]; then
 fi
 
 echo "[*] Extrayendo RootFS preservando enlaces simbólicos..."
-rm -rf "${ROOTFS_DIR}"
+chmod -R u+rwX "${ROOTFS_DIR}" 2>/dev/null || true
+rm -rf "${ROOTFS_DIR}" 2>/dev/null || mv "${ROOTFS_DIR}" "${ROOTFS_DIR}.old.$$" 2>/dev/null || true
 mkdir -p "${ROOTFS_DIR}"
 /sbin/debugfs -R "rdump / ${ROOTFS_DIR}" "${ROOTFS_EXT4}" > /dev/null 2>&1 || true
 
@@ -237,6 +238,10 @@ mkdir -p "${ROOTFS_DIR}/etc/lightdm/lightdm.conf.d" "${ROOTFS_DIR}/usr/share/lig
 cat << 'EOF' > "${ROOTFS_DIR}/etc/lightdm/lightdm.conf"
 [LightDM]
 run-directory=/run/lightdm
+backup-logs=false
+log-directory=/var/log/lightdm
+cache-directory=/var/cache/lightdm
+debug-mode=true
 
 [Seat:*]
 autologin-user=switch
@@ -300,7 +305,12 @@ ln -sf /usr/sbin/lightdm-gtk-greeter "${ROOTFS_DIR}/usr/bin/lightdm-greeter" 2>/
 # Indicar default-display-manager a nivel de sistema X11
 echo "/usr/sbin/lightdm" > "${ROOTFS_DIR}/etc/X11/default-display-manager"
 
-rm -rf "${ROOTFS_DIR}/etc/systemd/system/lightdm.service.d"
+mkdir -p "${ROOTFS_DIR}/etc/systemd/system/lightdm.service.d"
+cat << 'EOF' > "${ROOTFS_DIR}/etc/systemd/system/lightdm.service.d/logging.conf"
+[Service]
+StandardOutput=journal+console
+StandardError=journal+console
+EOF
 rm -f "${ROOTFS_DIR}/etc/systemd/system/getty@tty1.service"
 
 ln -sf /lib/systemd/system/lightdm.service "${ROOTFS_DIR}/etc/systemd/system/display-manager.service"
@@ -1053,7 +1063,7 @@ chmod 4755 "${ROOTFS_DIR}/usr/bin/gpasswd"
 chmod 4755 "${ROOTFS_DIR}/usr/bin/newgrp"
 chmod 4755 "${ROOTFS_DIR}/usr/bin/chsh"
 chmod 4755 "${ROOTFS_DIR}/usr/bin/chfn"
-chmod 4755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg"
+chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg"
 chmod 4754 "${ROOTFS_DIR}/usr/lib/dbus-1.0/dbus-daemon-launch-helper" 2>/dev/null || true
 
 # Permisos para directorios temporales y home
@@ -1172,8 +1182,8 @@ ln -sf /usr/sbin/nvpmodel "${ROOTFS_DIR}/usr/bin/nvpmodel" 2>/dev/null || true
 # Reglas udev para permitir control manual del ventilador PWM sin bloqueo térmico
 mkdir -p "${ROOTFS_DIR}/etc/udev/rules.d"
 cat << 'EOF' > "${ROOTFS_DIR}/etc/udev/rules.d/99-pwm-fan.rules"
-ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="pwm-fan", RUN+="/bin/chmod 0666 /sys/devices/platform/pwm-fan/target_pwm /sys/devices/platform/pwm-fan/temp_control /sys/devices/platform/pwm-fan/cur_pwm /sys/devices/platform/pwm-fan/fan_profile /sys/devices/platform/pwm-fan/tach_enable"
-ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="thermal-fan-est", RUN+="/bin/chmod 0666 /sys/devices/platform/thermal-fan-est/fan_profile"
+ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="pwm-fan", RUN+="/bin/sh -c '/usr/bin/chmod -f 0666 /sys/devices/platform/pwm-fan/* 2>/dev/null || true'"
+ACTION=="add|change", SUBSYSTEM=="platform", KERNEL=="thermal-fan-est", RUN+="/bin/sh -c '/usr/bin/chmod -f 0666 /sys/devices/platform/thermal-fan-est/* 2>/dev/null || true'"
 EOF
 chmod 644 "${ROOTFS_DIR}/etc/udev/rules.d/99-pwm-fan.rules" 2>/dev/null || true
 
@@ -1217,19 +1227,50 @@ cat << 'EOF' > "${ROOTFS_DIR}/etc/ld.so.conf.d/nvidia-tegra.conf"
 /usr/lib/tegra
 EOF
 
+# Enlaces directos de bibliotecas NVIDIA Tegra en /usr/lib/aarch64-linux-gnu para resolución incondicional en glibc
+if [ -d "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra" ]; then
+    echo "  -> Creando enlaces directos de bibliotecas NVIDIA Tegra en /usr/lib/aarch64-linux-gnu..."
+    for lib in "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra"/*.so*; do
+        [ -f "$lib" ] || [ -L "$lib" ] || continue
+        bname="$(basename "$lib")"
+        if [ "$bname" != "libdrm.so.2" ] || [ ! -e "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/$bname" ]; then
+            ln -sf "tegra/$bname" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/$bname" 2>/dev/null || true
+        fi
+    done
+fi
+
+# Configuración de proveedores EGL/GLVND y plataformas externas
+mkdir -p "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d" "${ROOTFS_DIR}/usr/share/egl/egl_external_platform.d"
+if [ -f "${NOBLE_ROOT}/usr/share/glvnd/egl_vendor.d/10_nvidia.json" ]; then
+    cp -f "${NOBLE_ROOT}/usr/share/glvnd/egl_vendor.d/10_nvidia.json" "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d/"
+elif [ -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json" ]; then
+    cp -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json" "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
+fi
+if [ -f "${NOBLE_ROOT}/usr/share/egl/egl_external_platform.d/nvidia_wayland.json" ]; then
+    cp -f "${NOBLE_ROOT}/usr/share/egl/egl_external_platform.d/nvidia_wayland.json" "${ROOTFS_DIR}/usr/share/egl/egl_external_platform.d/"
+fi
+
+# Reconstruir caché del enlazador dinámico (ldconfig) para Tegra
+echo "  -> Reconstruyendo caché del enlazador dinámico (ldconfig) para Tegra..."
+if [ -x "${ROOTFS_DIR}/sbin/ldconfig" ]; then
+    qemu-aarch64-static -L "${ROOTFS_DIR}" "${ROOTFS_DIR}/sbin/ldconfig" -r "${ROOTFS_DIR}" 2>/dev/null || \
+    chroot "${ROOTFS_DIR}" /sbin/ldconfig 2>/dev/null || true
+fi
+
 # Sincronización de Xorg 1.20 (ABI 24.1) compatible con el driver binario NVIDIA Tegra
 if [ -d "${NOBLE_ROOT}/usr/lib/xorg" ]; then
     echo "  -> Sincronizando servidor Xorg 1.20 (ABI 24.1) compatible con NVIDIA Tegra..."
     cp -a "${NOBLE_ROOT}/usr/lib/xorg" "${ROOTFS_DIR}/usr/lib/"
     cp -a "${NOBLE_ROOT}/usr/bin/cvt" "${ROOTFS_DIR}/usr/bin/" 2>/dev/null || true
     cp -a "${NOBLE_ROOT}/usr/bin/gtf" "${ROOTFS_DIR}/usr/bin/" 2>/dev/null || true
-    chmod 4755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" 2>/dev/null || true
+    chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" 2>/dev/null || true
     chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
 
-    # Script de arranque de Xorg: si lo corre root (LightDM), ejecutar Xorg nativo directamente sin pasar por Xorg.wrap
+    # Script de arranque de Xorg: exportar LD_LIBRARY_PATH y arrancar nativo sin SUID
     cat << 'EOF' > "${ROOTFS_DIR}/usr/bin/Xorg"
 #!/bin/sh
 basedir=/usr/lib/xorg
+export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/tegra:${LD_LIBRARY_PATH:-}"
 if [ "$(id -u)" = "0" ]; then
     exec "$basedir"/Xorg "$@"
 elif [ -x "$basedir"/Xorg.wrap ]; then
@@ -1648,7 +1689,6 @@ for suid_bin in \
     "${ROOTFS_DIR}/usr/bin/chsh" \
     "${ROOTFS_DIR}/usr/bin/chfn" \
     "${ROOTFS_DIR}/usr/bin/crontab" \
-    "${ROOTFS_DIR}/usr/lib/xorg/Xorg" \
     "${ROOTFS_DIR}/usr/lib/polkit-1/polkit-agent-helper-1" \
     "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/polkit-1/polkit-agent-helper-1"; do
     if [ -f "$suid_bin" ]; then
@@ -1657,6 +1697,7 @@ for suid_bin in \
     fi
 done
 
+[ -f "${ROOTFS_DIR}/usr/lib/xorg/Xorg" ] && chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" 2>/dev/null || true
 [ -f "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" ] && chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
 
 if [ -f "${ROOTFS_DIR}/usr/lib/dbus-1.0/dbus-daemon-launch-helper" ]; then
@@ -1710,7 +1751,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chmod 0755 /usr/lib/xorg/Xorg.wrap 2>/dev/null; mkdir -p /run/polkit-1/rules.d 2>/dev/null; adduser lightdm video 2>/dev/null || true; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel /var/lib/nvpmodel/* 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/nvpmodel ] && ln -sf /usr/sbin/nvpmodel /usr/bin/nvpmodel 2>/dev/null; chmod 666 /sys/devices/platform/pwm-fan/* /sys/devices/pwm-fan/* /sys/devices/platform/thermal-fan-est/* 2>/dev/null || true; [ -x /usr/share/nvpmodel_indicator/nvpmodel_helper.sh ] && /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 10 $(cat /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || echo 0) 2>/dev/null || true; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chmod 0755 /usr/lib/xorg/Xorg /usr/lib/xorg/Xorg.wrap 2>/dev/null; /sbin/ldconfig 2>/dev/null || true; mkdir -p /run/polkit-1/rules.d 2>/dev/null; adduser lightdm video 2>/dev/null || true; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel /var/lib/nvpmodel/* 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/nvpmodel ] && ln -sf /usr/sbin/nvpmodel /usr/bin/nvpmodel 2>/dev/null; chmod 666 /sys/devices/platform/pwm-fan/* /sys/devices/pwm-fan/* /sys/devices/platform/thermal-fan-est/* 2>/dev/null || true; [ -x /usr/share/nvpmodel_indicator/nvpmodel_helper.sh ] && /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 10 $(cat /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || echo 0) 2>/dev/null || true; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]
