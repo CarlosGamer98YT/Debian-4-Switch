@@ -245,7 +245,7 @@ user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
 autologin-inhibit=false
-xserver-command=X -core -noreset -keeptty -ignoreABI
+xserver-command=X -core -noreset -ignoreABI
 EOF
 
 # Configuración complementaria en conf.d para asegurar precedencia
@@ -257,7 +257,7 @@ user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
 autologin-inhibit=false
-xserver-command=X -core -noreset -keeptty -ignoreABI
+xserver-command=X -core -noreset -ignoreABI
 EOF
 
 cat << 'EOF' > "${ROOTFS_DIR}/usr/share/lightdm/lightdm.conf.d/99-switch-autologin.conf"
@@ -268,7 +268,7 @@ user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
 autologin-inhibit=false
-xserver-command=X -core -noreset -keeptty -ignoreABI
+xserver-command=X -core -noreset -ignoreABI
 EOF
 
 # Configuración del Greeter GTK
@@ -1640,7 +1640,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R 105:110 /var/lib/lightdm /var/cache/lightdm 2>/dev/null; chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; sed -i "s/-keeptty //g" /etc/lightdm/lightdm.conf /etc/lightdm/lightdm.conf.d/*.conf /usr/share/lightdm/lightdm.conf.d/*.conf 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]
