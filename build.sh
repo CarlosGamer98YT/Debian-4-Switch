@@ -137,17 +137,24 @@ DEBS_DIR="${DOWNLOADS_DIR}/switch-debs"
 mkdir -p "${DEBS_DIR}"
 BASE_URL="https://theofficialgman.github.io/l4t-debs"
 
-if [ ! -f "${DEBS_DIR}/Packages" ]; then
+if [ ! -s "${DEBS_DIR}/Packages" ]; then
   echo "  -> Descargando índice de paquetes L4T..."
-  curl -sL "${BASE_URL}/dists/l4t/jammy/binary-arm64/Packages.gz" | gzip -dc > "${DEBS_DIR}/Packages"
+  rm -f "${DEBS_DIR}/Packages" "${DEBS_DIR}/Packages.gz" 2>/dev/null || true
+  curl -f -sL "${BASE_URL}/dists/l4t/jammy/binary-arm64/Packages.gz" -o "${DEBS_DIR}/Packages.gz" || true
+  if [ -s "${DEBS_DIR}/Packages.gz" ]; then
+    gzip -dc "${DEBS_DIR}/Packages.gz" > "${DEBS_DIR}/Packages"
+    rm -f "${DEBS_DIR}/Packages.gz"
+  fi
 fi
 
 for pkg in joycond nvidia-l4t-3d-core nvidia-l4t-configs nvidia-l4t-core nvidia-l4t-firmware nvidia-l4t-init nvidia-l4t-multimedia nvidia-l4t-multimedia-utils nvidia-l4t-x11 switch-alsa-ucm2 switch-bsp switch-dock-handler switch-joystick-mouse switch-touch-rules switch-l4t-configs; do
   if ! ls "${DEBS_DIR}/${pkg}"*.deb 1> /dev/null 2>&1; then
-    url=$(awk -v p="$pkg" '$1=="Package:" && $2==p {found=1} found && $1=="Filename:" {print $2; exit}' "${DEBS_DIR}/Packages" || true)
-    if [ -n "$url" ]; then
-      echo "  -> Descargando $pkg..."
-      curl -sL -o "${DEBS_DIR}/${pkg}.deb" "${BASE_URL}/${url}"
+    if [ -s "${DEBS_DIR}/Packages" ]; then
+      url=$(awk -v p="$pkg" '$1=="Package:" && $2==p {found=1} found && $1=="Filename:" {print $2; exit}' "${DEBS_DIR}/Packages" || true)
+      if [ -n "$url" ]; then
+        echo "  -> Descargando $pkg..."
+        curl -f -sL -o "${DEBS_DIR}/${pkg}.deb" "${BASE_URL}/${url}" || true
+      fi
     fi
   fi
 done
@@ -155,10 +162,9 @@ done
 for deb in "${DEBS_DIR}"/*.deb; do
   if [ -f "$deb" ]; then
     echo "  -> Extrayendo $(basename "$deb") en RootFS..."
-    dpkg-deb -x "$deb" "${ROOTFS_DIR}"
+    dpkg-deb -x "$deb" "${ROOTFS_DIR}" 2>/dev/null || true
   fi
 done
-rm -f "${DEBS_DIR}"/*.deb "${DEBS_DIR}/Packages" 2>/dev/null || true
 
 # Inyectar paquetes personalizados adaptados por el usuario
 for deb in "${WORKDIR}"/*.deb; do
@@ -241,7 +247,6 @@ run-directory=/run/lightdm
 backup-logs=false
 log-directory=/var/log/lightdm
 cache-directory=/var/cache/lightdm
-debug-mode=true
 
 [Seat:*]
 autologin-user=switch
@@ -249,7 +254,6 @@ autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
-autologin-inhibit=false
 xserver-command=X -core
 session-wrapper=/etc/X11/Xsession
 EOF
@@ -262,7 +266,6 @@ autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
-autologin-inhibit=false
 xserver-command=X -core
 session-wrapper=/etc/X11/Xsession
 EOF
@@ -274,7 +277,6 @@ autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
-autologin-inhibit=false
 xserver-command=X -core
 session-wrapper=/etc/X11/Xsession
 EOF
@@ -282,12 +284,9 @@ EOF
 # Configuración del Greeter GTK
 cat << 'EOF' > "${ROOTFS_DIR}/etc/lightdm/lightdm-gtk-greeter.conf"
 [greeter]
-theme-name=Adwaita
+theme-name=Adwaita-dark
 icon-theme-name=Adwaita
 cursor-theme-name=Adwaita
-font-name=Sans 10
-xft-antialias=true
-xft-dpi=96
 xft-hintstyle=hintslight
 xft-rgba=rgb
 default-session=xfce
@@ -308,6 +307,8 @@ echo "/usr/sbin/lightdm" > "${ROOTFS_DIR}/etc/X11/default-display-manager"
 mkdir -p "${ROOTFS_DIR}/etc/systemd/system/lightdm.service.d"
 cat << 'EOF' > "${ROOTFS_DIR}/etc/systemd/system/lightdm.service.d/logging.conf"
 [Service]
+ExecStart=
+ExecStart=/usr/sbin/lightdm --debug
 StandardOutput=journal+console
 StandardError=journal+console
 EOF
@@ -1221,10 +1222,20 @@ mkdir -p "${ROOTFS_DIR}/etc/systemd/system/multi-user.target.wants"
 ln -sf ../nvpmodel.service "${ROOTFS_DIR}/etc/systemd/system/multi-user.target.wants/nvpmodel.service" 2>/dev/null || true
 
 # Configuración de bibliotecas Tegra y Dynamic Linker
+if [ -d "${NOBLE_ROOT}/usr/lib/aarch64-linux-gnu/tegra" ]; then
+    echo "  -> Sincronizando bibliotecas NVIDIA Tegra y Tegra-EGL..."
+    mkdir -p "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl"
+    cp -rn "${NOBLE_ROOT}/usr/lib/aarch64-linux-gnu/tegra"/* "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/" 2>/dev/null || true
+    cp -rn "${NOBLE_ROOT}/usr/lib/aarch64-linux-gnu/tegra-egl"/* "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl/" 2>/dev/null || true
+fi
+
 ln -sf aarch64-linux-gnu/tegra "${ROOTFS_DIR}/usr/lib/tegra" 2>/dev/null || true
+ln -sf aarch64-linux-gnu/tegra-egl "${ROOTFS_DIR}/usr/lib/tegra-egl" 2>/dev/null || true
 cat << 'EOF' > "${ROOTFS_DIR}/etc/ld.so.conf.d/nvidia-tegra.conf"
 /usr/lib/aarch64-linux-gnu/tegra
+/usr/lib/aarch64-linux-gnu/tegra-egl
 /usr/lib/tegra
+/usr/lib/tegra-egl
 EOF
 
 # Enlaces directos de bibliotecas NVIDIA Tegra en /usr/lib/aarch64-linux-gnu para resolución incondicional en glibc
