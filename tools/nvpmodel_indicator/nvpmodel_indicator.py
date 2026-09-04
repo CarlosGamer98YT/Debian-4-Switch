@@ -155,15 +155,8 @@ def set_power_mode(item, mode_id):
 
 def set_fan_mode(item, mode_id):
     if item.get_active():
-        if mode_id == "3":
-            subprocess.call(['pkexec', nvpmodel_helper_path, '10', '3'])
-        else:
-            subprocess.call(['pkexec', nvpmodel_helper_path, '10', str(mode_id)])
-            if mode_id != fm.cur_mode():
-                success = fm.set_mode(mode_id, ['pkexec'])
-                if not success and confirm_reboot():
-                    fm.set_mode(mode_id, ['pkexec'], force=True)
-                    return
+        subprocess.call(['pkexec', nvpmodel_helper_path, '10', str(mode_id)])
+
 
 def set_chg_mode(item, mode_id):
     if item.get_active() and mode_id != cm.cur_mode():
@@ -375,29 +368,52 @@ def mode_change_monitor(running):
             fmode_changed = True
             cur_fmode = new_fm
 
-        # In 100% full speed mode, enforce target_pwm = 255
-        if cur_fmode == "3":
+        # Enforce current custom fan mode PWM, with thermal safety guard
+        if cur_fmode in ["0", "1", "2", "3"]:
+            target_pwm_map = {"1": 77, "0": 128, "2": 192, "3": 255}
+            desired_pwm = target_pwm_map.get(cur_fmode, 128)
+
+            # Thermal safety boost: if temperature rises dangerously high, ramp fan up
+            temp_val, fan = get_thermal_stats()
+            if temp_val is not None:
+                if temp_val >= 78:
+                    desired_pwm = 255
+                elif temp_val >= 68 and desired_pwm < 192:
+                    desired_pwm = 192
+
             for p in ["/sys/devices/platform/pwm-fan", "/sys/bus/platform/devices/pwm-fan", "/sys/devices/pwm-fan"]:
+                tc = os.path.join(p, "temp_control")
                 tp = os.path.join(p, "target_pwm")
-                if os.path.exists(tp):
+                if os.path.exists(tc):
                     try:
-                        with open(tp, "w") as f:
-                            f.write("255\n")
+                        with open(tc, "r+") as f:
+                            if f.read().strip() != "0":
+                                f.seek(0)
+                                f.write("0\n")
                     except Exception:
                         pass
-
-        # Live temperature and fan speed reading
-        temp, fan = get_thermal_stats()
+                if os.path.exists(tp):
+                    try:
+                        with open(tp, "r+") as f:
+                            cur_p = f.read().strip()
+                            if cur_p != str(desired_pwm):
+                                f.seek(0)
+                                f.write(f"{desired_pwm}\n")
+                    except Exception:
+                        pass
+        else:
+            temp_val, fan = get_thermal_stats()
 
         # Build live top panel label
         pwr_name = pm.get_name_by_id(cur_mode) or "Console"
         label_parts = [pwr_name]
-        if temp is not None:
-            label_parts.append(f"{temp}°C")
+        if temp_val is not None:
+            label_parts.append(f"{temp_val}°C")
         if fan is not None:
             label_parts.append(f"Fan: {fan}")
-        elif cur_fmode == "3":
-            label_parts.append("Fan: 100%")
+        else:
+            pwm_pct = {"1": "30%", "0": "50%", "2": "75%", "3": "100%"}.get(cur_fmode, "50%")
+            label_parts.append(f"Fan: {pwm_pct}")
 
         final_label = " | ".join(label_parts) + "  "
         GObject.idle_add(indicator.set_label, final_label, INDICATOR_ID, priority=GObject.PRIORITY_DEFAULT)

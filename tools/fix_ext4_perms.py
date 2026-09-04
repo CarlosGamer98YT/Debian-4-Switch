@@ -35,6 +35,10 @@ SPECIAL_PERMS = {
     "/var/lib/lightdm/data": 0o040750,
     "/var/cache/lightdm": 0o040755,
     "/var/log/lightdm": 0o040755,
+    "/var/lib/nvpmodel": 0o040777,
+    "/usr/share/nvpmodel_indicator/nvpmodel_helper.sh": 0o100755,
+    "/usr/share/nvpmodel_indicator/nvpmodel_indicator.py": 0o100755,
+    "/usr/local/bin/switch-sensors": 0o100755,
 }
 
 def escape_path(path):

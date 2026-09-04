@@ -26,28 +26,71 @@ elif [ "$1" -eq 9 ]; then # Get saved charging limit.
      exit $(cat /var/lib/nvpmodel/charging_status 2>/dev/null || echo 0)
 elif [ "$1" -eq 10 ]; then # Set fan mode (0: Console, 1: Handheld, 2: Cool, 3: Full 100%)
      mkdir -p /var/lib/nvpmodel 2>/dev/null || true
-     if [ "$2" -eq 3 ]; then
-         echo 3 > /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || true
-         for p in /sys/devices/platform/pwm-fan /sys/bus/platform/devices/pwm-fan /sys/devices/pwm-fan; do
-             if [ -d "$p" ]; then
-                 echo 255 > "$p/target_pwm" 2>/dev/null || true
-             fi
-         done
-         for cd in /sys/class/thermal/cooling_device*; do
-             if [ -f "$cd/type" ] && grep -qi "pwm-fan" "$cd/type" 2>/dev/null; then
-                 cat "$cd/max_state" > "$cd/cur_state" 2>/dev/null || true
-             fi
-         done
+     echo "$2" > /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || true
+     chmod 666 /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || true
+
+     MODE="$2"
+     TARGET_PWM=128
+     PROFILE_NAME="Console"
+
+     if [ "$MODE" -eq 1 ]; then
+         # Handheld mode: quiet / lower RPM (~30% / 3200 RPM)
+         TARGET_PWM=77
+         PROFILE_NAME="Handheld"
+     elif [ "$MODE" -eq 2 ]; then
+         # Cool mode: high airflow cooling (~75% / 7800 RPM)
+         TARGET_PWM=192
+         PROFILE_NAME="Cool"
+     elif [ "$MODE" -eq 3 ]; then
+         # Full 100% mode: maximum speed (100% / 10000 RPM)
+         TARGET_PWM=255
+         PROFILE_NAME="Cool"
      else
-         echo "$2" > /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || true
-         if [ "$2" -eq 0 ]; then
-             nvpmodel -d Console 2>/dev/null || true
-         elif [ "$2" -eq 1 ]; then
-             nvpmodel -d Handheld 2>/dev/null || true
-         elif [ "$2" -eq 2 ]; then
-             nvpmodel -d Cool 2>/dev/null || true
-         fi
+         # Console mode (0): balanced docked speed (~50% / 5200 RPM)
+         TARGET_PWM=128
+         PROFILE_NAME="Console"
      fi
+
+     # Apply immediately to pwm-fan
+     for p in /sys/devices/platform/pwm-fan /sys/bus/platform/devices/pwm-fan /sys/devices/pwm-fan; do
+         if [ -d "$p" ]; then
+             # Disable temp_control so continuous_therm_gov doesn't overwrite target_pwm
+             [ -w "$p/temp_control" ] && echo 0 > "$p/temp_control" 2>/dev/null || true
+             [ -w "$p/fan_profile" ] && echo "$PROFILE_NAME" > "$p/fan_profile" 2>/dev/null || true
+             [ -w "$p/tach_enable" ] && echo 1 > "$p/tach_enable" 2>/dev/null || true
+             [ -w "$p/target_pwm" ] && echo "$TARGET_PWM" > "$p/target_pwm" 2>/dev/null || true
+             chmod 666 "$p/target_pwm" "$p/temp_control" "$p/cur_pwm" "$p/fan_profile" "$p/tach_enable" 2>/dev/null || true
+         fi
+     done
+
+     # Apply to thermal-fan-est
+     for est in /sys/devices/platform/thermal-fan-est /sys/bus/platform/devices/thermal-fan-est /sys/devices/thermal-fan-est; do
+         if [ -d "$est" ]; then
+             [ -w "$est/fan_profile" ] && echo "$PROFILE_NAME" > "$est/fan_profile" 2>/dev/null || true
+             chmod 666 "$est/fan_profile" 2>/dev/null || true
+         fi
+     done
+
+     # Update cooling devices
+     for cd in /sys/class/thermal/cooling_device*; do
+         if [ -f "$cd/type" ] && grep -qi "pwm-fan" "$cd/type" 2>/dev/null; then
+             max_st=$(cat "$cd/max_state" 2>/dev/null || echo 255)
+             if [ -n "$max_st" ] && [ "$max_st" -le 10 ]; then
+                 st=$(( (TARGET_PWM * max_st) / 255 ))
+                 echo "$st" > "$cd/cur_state" 2>/dev/null || true
+             else
+                 echo "$TARGET_PWM" > "$cd/cur_state" 2>/dev/null || true
+             fi
+         fi
+     done
+
+     # Update status file for nvpmodel compatibility
+     if [ -f /var/lib/nvpmodel/status ]; then
+         sed -i "s/fmode:[^ ]*/fmode:${PROFILE_NAME}/g" /var/lib/nvpmodel/status 2>/dev/null || true
+     else
+         echo "pmode:0000 fmode:${PROFILE_NAME}" > /var/lib/nvpmodel/status 2>/dev/null || true
+     fi
+     exit 0
 elif [ "$1" -eq 11 ]; then # Get custom fan mode.
      if [ -f "/var/lib/nvpmodel/custom_fan_mode" ]; then
          exit $(cat /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || echo 0)
