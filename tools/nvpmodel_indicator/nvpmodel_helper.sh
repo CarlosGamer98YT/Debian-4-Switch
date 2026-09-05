@@ -54,12 +54,21 @@ elif [ "$1" -eq 10 ]; then # Set fan mode (0: Console, 1: Handheld, 2: Cool, 3: 
      # Apply immediately to pwm-fan
      for p in /sys/devices/platform/pwm-fan /sys/bus/platform/devices/pwm-fan /sys/devices/pwm-fan; do
          if [ -d "$p" ]; then
-             # Disable temp_control so continuous_therm_gov doesn't overwrite target_pwm
-             [ -w "$p/temp_control" ] && echo 0 > "$p/temp_control" 2>/dev/null || true
+             # 1. Set fan profile first (because profile change can reset driver caps)
              [ -w "$p/fan_profile" ] && echo "$PROFILE_NAME" > "$p/fan_profile" 2>/dev/null || true
+             # 2. Unlock caps so TARGET_PWM is never clamped by kernel driver
+             [ -w "$p/state_cap" ] && echo 9 > "$p/state_cap" 2>/dev/null || true
+             [ -w "$p/pwm_cap" ] && echo 255 > "$p/pwm_cap" 2>/dev/null || true
+             # 3. Fast ramp speed
+             [ -w "$p/step_time" ] && echo 20 > "$p/step_time" 2>/dev/null || true
+             # 4. Disable continuous thermal governor so manual PWM persists
+             [ -w "$p/temp_control" ] && echo 0 > "$p/temp_control" 2>/dev/null || true
+             # 5. Ensure tachometer is enabled
              [ -w "$p/tach_enable" ] && echo 1 > "$p/tach_enable" 2>/dev/null || true
+             # 6. Set desired PWM duty
              [ -w "$p/target_pwm" ] && echo "$TARGET_PWM" > "$p/target_pwm" 2>/dev/null || true
-             chmod 666 "$p/target_pwm" "$p/temp_control" "$p/cur_pwm" "$p/fan_profile" "$p/tach_enable" 2>/dev/null || true
+             # 7. Grant full read/write permissions for sysfs nodes
+             chmod 666 "$p"/* 2>/dev/null || true
          fi
      done
 
@@ -67,20 +76,7 @@ elif [ "$1" -eq 10 ]; then # Set fan mode (0: Console, 1: Handheld, 2: Cool, 3: 
      for est in /sys/devices/platform/thermal-fan-est /sys/bus/platform/devices/thermal-fan-est /sys/devices/thermal-fan-est; do
          if [ -d "$est" ]; then
              [ -w "$est/fan_profile" ] && echo "$PROFILE_NAME" > "$est/fan_profile" 2>/dev/null || true
-             chmod 666 "$est/fan_profile" 2>/dev/null || true
-         fi
-     done
-
-     # Update cooling devices
-     for cd in /sys/class/thermal/cooling_device*; do
-         if [ -f "$cd/type" ] && grep -qi "pwm-fan" "$cd/type" 2>/dev/null; then
-             max_st=$(cat "$cd/max_state" 2>/dev/null || echo 255)
-             if [ -n "$max_st" ] && [ "$max_st" -le 10 ]; then
-                 st=$(( (TARGET_PWM * max_st) / 255 ))
-                 echo "$st" > "$cd/cur_state" 2>/dev/null || true
-             else
-                 echo "$TARGET_PWM" > "$cd/cur_state" 2>/dev/null || true
-             fi
+             chmod 666 "$est"/* 2>/dev/null || true
          fi
      done
 

@@ -112,7 +112,7 @@ def get_thermal_stats():
                     try:
                         with open(pwm_file, "r") as f:
                             pwm_val = int(f.read().strip())
-                            pwm = round(pwm_val * 100 / 255.0)
+                            pwm = min(100, max(0, round(pwm_val * 100 / 255.0)))
                             break
                     except Exception:
                         pass
@@ -137,6 +137,26 @@ def get_custom_fan_mode():
         pass
     return fm.cur_mode() or "0"
 
+updating_menu = False
+
+def update_indicator_label(force_fmode=None):
+    cur_pwr = pm.cur_mode()
+    cur_fan = force_fmode if force_fmode is not None else get_custom_fan_mode()
+    temp_val, fan = get_thermal_stats()
+
+    pwr_name = pm.get_name_by_id(cur_pwr) or "Console"
+    label_parts = [pwr_name]
+    if temp_val is not None:
+        label_parts.append(f"{temp_val}°C")
+    if fan is not None:
+        label_parts.append(f"Fan: {fan}")
+    else:
+        pwm_pct = {"1": "30%", "0": "50%", "2": "75%", "3": "100%"}.get(cur_fan, "50%")
+        label_parts.append(f"Fan: {pwm_pct}")
+
+    final_label = " | ".join(label_parts) + "  "
+    GObject.idle_add(indicator.set_label, final_label, INDICATOR_ID, priority=GObject.PRIORITY_DEFAULT)
+
 def confirm_reboot():
     dialog = gtk.MessageDialog(None, 0, gtk.MessageType.WARNING,
         gtk.ButtonsType.OK_CANCEL, "System reboot is required to apply changes")
@@ -147,15 +167,23 @@ def confirm_reboot():
     return response == gtk.ResponseType.OK
 
 def set_power_mode(item, mode_id):
+    global updating_menu
+    if updating_menu:
+        return
     if item.get_active() and mode_id != pm.cur_mode():
         success = pm.set_mode(mode_id, ['pkexec'])
         if not success and confirm_reboot():
             pm.set_mode(mode_id, ['pkexec'], force=True)
             return
+        update_indicator_label()
 
 def set_fan_mode(item, mode_id):
+    global updating_menu
+    if updating_menu:
+        return
     if item.get_active():
         subprocess.call(['pkexec', nvpmodel_helper_path, '10', str(mode_id)])
+        update_indicator_label(force_fmode=str(mode_id))
 
 
 def set_chg_mode(item, mode_id):
@@ -351,7 +379,7 @@ def build_app_menu():
     return menu
 
 def mode_change_monitor(running):
-    global main_menu
+    global main_menu, updating_menu
     cur_mode = pm.cur_mode()
     cur_fmode = get_custom_fan_mode()
     pmode_changed = False
@@ -374,7 +402,7 @@ def mode_change_monitor(running):
             desired_pwm = target_pwm_map.get(cur_fmode, 128)
 
             # Thermal safety boost: if temperature rises dangerously high, ramp fan up
-            temp_val, fan = get_thermal_stats()
+            temp_val, _ = get_thermal_stats()
             if temp_val is not None:
                 if temp_val >= 78:
                     desired_pwm = 255
@@ -384,6 +412,24 @@ def mode_change_monitor(running):
             for p in ["/sys/devices/platform/pwm-fan", "/sys/bus/platform/devices/pwm-fan", "/sys/devices/pwm-fan"]:
                 tc = os.path.join(p, "temp_control")
                 tp = os.path.join(p, "target_pwm")
+                pwmc = os.path.join(p, "pwm_cap")
+                sc = os.path.join(p, "state_cap")
+                if os.path.exists(pwmc):
+                    try:
+                        with open(pwmc, "r+") as f:
+                            if f.read().strip() != "255":
+                                f.seek(0)
+                                f.write("255\n")
+                    except Exception:
+                        pass
+                if os.path.exists(sc):
+                    try:
+                        with open(sc, "r+") as f:
+                            if f.read().strip() != "9":
+                                f.seek(0)
+                                f.write("9\n")
+                    except Exception:
+                        pass
                 if os.path.exists(tc):
                     try:
                         with open(tc, "r+") as f:
@@ -401,22 +447,8 @@ def mode_change_monitor(running):
                                 f.write(f"{desired_pwm}\n")
                     except Exception:
                         pass
-        else:
-            temp_val, fan = get_thermal_stats()
 
-        # Build live top panel label
-        pwr_name = pm.get_name_by_id(cur_mode) or "Console"
-        label_parts = [pwr_name]
-        if temp_val is not None:
-            label_parts.append(f"{temp_val}°C")
-        if fan is not None:
-            label_parts.append(f"Fan: {fan}")
-        else:
-            pwm_pct = {"1": "30%", "0": "50%", "2": "75%", "3": "100%"}.get(cur_fmode, "50%")
-            label_parts.append(f"Fan: {pwm_pct}")
-
-        final_label = " | ".join(label_parts) + "  "
-        GObject.idle_add(indicator.set_label, final_label, INDICATOR_ID, priority=GObject.PRIORITY_DEFAULT)
+        update_indicator_label()
 
         # Update active modes in menu if changed
         if pmode_changed or fmode_changed:
@@ -431,10 +463,22 @@ def mode_change_monitor(running):
                     continue
                 if not fan_section and pmode_changed and lbl and lbl[0] == cur_mode:
                     pmode_changed = False
-                    GObject.idle_add(child.set_active, True, priority=GObject.PRIORITY_DEFAULT)
+                    if hasattr(child, 'get_active') and not child.get_active():
+                        def _set_pm(c):
+                            global updating_menu
+                            updating_menu = True
+                            c.set_active(True)
+                            updating_menu = False
+                        GObject.idle_add(_set_pm, child, priority=GObject.PRIORITY_DEFAULT)
                 if fan_section and fmode_changed and lbl and lbl[0] == cur_fmode:
                     fmode_changed = False
-                    GObject.idle_add(child.set_active, True, priority=GObject.PRIORITY_DEFAULT)
+                    if hasattr(child, 'get_active') and not child.get_active():
+                        def _set_fm(c):
+                            global updating_menu
+                            updating_menu = True
+                            c.set_active(True)
+                            updating_menu = False
+                        GObject.idle_add(_set_fm, child, priority=GObject.PRIORITY_DEFAULT)
 
         time.sleep(2)
 
@@ -475,6 +519,7 @@ indicator.set_menu(main_menu)
 
 # Set active modes in menu
 fan_section = False
+updating_menu = True
 chg_mode_no = eval(chg_mode)
 for child in main_menu.get_children():
     label = child.get_label()
@@ -488,6 +533,7 @@ for child in main_menu.get_children():
         child.set_active(True)
     if fan_section and label and label[0] == fan_mode:
         child.set_active(True)
+updating_menu = False
 
 for child in main_app_menu.get_children():
     label = child.get_label()
