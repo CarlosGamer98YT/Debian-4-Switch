@@ -43,7 +43,7 @@ targets = [
     "firefox-esr", "fastfetch", "libgl1-mesa-dri", "mesa-utils", "desktop-base", "adwaita-icon-theme", "adwaita-icon-theme-legacy", "hicolor-icon-theme",
     "alsa-utils", "alsa-ucm-conf", "alsa-topology-conf", "pulseaudio", "pulseaudio-utils", "pulseaudio-module-bluetooth", "pavucontrol",
     "xfce4-pulseaudio-plugin", "xfce4-power-manager", "xfce4-power-manager-plugins",
-    "xfce4-notifyd", "xfce4-screenshooter", "xfce4-taskmanager", "xfce4-indicator-plugin", "ayatana-indicator-application", "xapp-sn-watcher",
+    "xfce4-notifyd", "xfce4-screenshooter", "xfce4-taskmanager", "xfce4-indicator-plugin", "xfce4-genmon-plugin", "ayatana-indicator-application", "xapp-sn-watcher",
     "network-manager", "network-manager-gnome", "gir1.2-nm-1.0", "gir1.2-nma-1.0", "wpasupplicant", "wireless-tools", "rfkill", "wireless-regdb", "iw",
     "systemd-timesyncd", "blueman", "bluez", "lxpolkit", "gvfs", "gvfs-backends", "xdotool",
     "gir1.2-notify-0.7", "gir1.2-ayatanaappindicator3-0.1", "gir1.2-freedesktop", "libnotify-bin", "libnotify4",

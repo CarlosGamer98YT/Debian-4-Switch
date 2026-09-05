@@ -52,7 +52,7 @@ elif [ "$1" -eq 10 ]; then # Set fan mode (0: Console, 1: Handheld, 2: Cool, 3: 
      fi
 
      # Apply immediately to pwm-fan
-     for p in /sys/devices/platform/pwm-fan /sys/bus/platform/devices/pwm-fan /sys/devices/pwm-fan; do
+     for p in /sys/devices/pwm-fan /sys/bus/platform/devices/pwm-fan; do
          if [ -d "$p" ]; then
              # 1. Set fan profile first (because profile change can reset driver caps)
              [ -w "$p/fan_profile" ] && echo "$PROFILE_NAME" > "$p/fan_profile" 2>/dev/null || true
@@ -75,7 +75,7 @@ elif [ "$1" -eq 10 ]; then # Set fan mode (0: Console, 1: Handheld, 2: Cool, 3: 
      done
 
      # Apply to thermal-fan-est
-     for est in /sys/devices/platform/thermal-fan-est /sys/bus/platform/devices/thermal-fan-est /sys/devices/thermal-fan-est; do
+     for est in /sys/devices/platform/thermal-fan-est /sys/devices/thermal-fan-est; do
          if [ -d "$est" ]; then
              [ -w "$est/fan_profile" ] && echo "$PROFILE_NAME" > "$est/fan_profile" 2>/dev/null || true
              chmod 666 "$est"/* 2>/dev/null || true

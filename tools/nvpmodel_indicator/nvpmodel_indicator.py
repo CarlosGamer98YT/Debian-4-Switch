@@ -44,7 +44,7 @@ else:
 if os.path.exists('/usr/share/nvpmodel_indicator/nvpmodel-profiles.svg'):
     ICON_SHADOW = os.path.abspath('/usr/share/nvpmodel_indicator/nvpmodel-profiles.svg')
 else:
-    ICON_SHADOW = os.path.abspath('/usr/share/nvpmodel_indicator/1px.svg')
+    ICON_SHADOW = os.path.abspath('/usr/share/nvpmodel_indicator/nvpmodel-switch.svg')
 
 JOYCON_MAP = os.path.abspath('/usr/share/nvpmodel_indicator/jc_map.png')
 
@@ -112,9 +112,8 @@ def get_thermal_stats(cur_fan="0"):
 
     # Fan & RPM
     fan_dirs = [
-        "/sys/devices/platform/pwm-fan",
-        "/sys/bus/platform/devices/pwm-fan",
         "/sys/devices/pwm-fan",
+        "/sys/bus/platform/devices/pwm-fan",
     ]
 
     target_pwm_pct_map = {"1": 30, "0": 50, "2": 75, "3": 100}
@@ -197,7 +196,21 @@ def update_indicator_label(force_fmode=None):
     label_parts.append(f"Fan: {fan_str}")
 
     final_label = " | ".join(label_parts) + "  "
-    GObject.idle_add(indicator.set_label, final_label, INDICATOR_ID, priority=GObject.PRIORITY_DEFAULT)
+
+    def _apply_ui():
+        try:
+            indicator.set_label(final_label, final_label)
+        except Exception:
+            pass
+        try:
+            indicator.set_title(final_label)
+        except Exception:
+            pass
+        try:
+            indicatorApps.set_title(f"Switch: {final_label}")
+        except Exception:
+            pass
+    GObject.idle_add(_apply_ui, priority=GObject.PRIORITY_DEFAULT)
 
 def confirm_reboot():
     dialog = gtk.MessageDialog(None, 0, gtk.MessageType.WARNING,
@@ -229,7 +242,7 @@ def set_fan_mode(item, mode_id):
         desired_pwm = target_pwm_map.get(mode_str, 128)
 
         # 1. Direct immediate write to sysfs if writable (zero delay!)
-        for p in ["/sys/devices/platform/pwm-fan", "/sys/bus/platform/devices/pwm-fan", "/sys/devices/pwm-fan"]:
+        for p in ["/sys/devices/pwm-fan", "/sys/bus/platform/devices/pwm-fan"]:
             if os.path.isdir(p):
                 try:
                     with open(os.path.join(p, "temp_control"), "w") as f:
@@ -242,6 +255,7 @@ def set_fan_mode(item, mode_id):
                         f.write(f"{desired_pwm}\n")
                 except Exception:
                     pass
+                break
 
         # 2. Save mode to custom_fan_mode file directly
         try:
@@ -459,100 +473,104 @@ def mode_change_monitor(running):
     fmode_changed = False
 
     while running.is_set():
-        new_pm = pm.cur_mode()
-        new_fm = get_custom_fan_mode()
+        try:
+            new_pm = pm.cur_mode()
+            new_fm = get_custom_fan_mode()
 
-        if cur_mode != new_pm:
-            pmode_changed = True
-            cur_mode = new_pm
-        if cur_fmode != new_fm:
-            fmode_changed = True
-            cur_fmode = new_fm
+            if cur_mode != new_pm:
+                pmode_changed = True
+                cur_mode = new_pm
+            if cur_fmode != new_fm:
+                fmode_changed = True
+                cur_fmode = new_fm
 
-        # Enforce current custom fan mode PWM, with thermal safety guard
-        if cur_fmode in ["0", "1", "2", "3"]:
-            target_pwm_map = {"1": 77, "0": 128, "2": 192, "3": 255}
-            desired_pwm = target_pwm_map.get(cur_fmode, 128)
+            # Enforce current custom fan mode PWM, with thermal safety guard
+            if cur_fmode in ["0", "1", "2", "3"]:
+                target_pwm_map = {"1": 77, "0": 128, "2": 192, "3": 255}
+                desired_pwm = target_pwm_map.get(cur_fmode, 128)
 
-            # Thermal safety boost: if temperature rises dangerously high, ramp fan up
-            temp_val, _ = get_thermal_stats(cur_fmode)
-            if temp_val is not None:
-                if temp_val >= 78:
-                    desired_pwm = 255
-                elif temp_val >= 68 and desired_pwm < 192:
-                    desired_pwm = 192
+                # Thermal safety boost: if temperature rises dangerously high, ramp fan up
+                temp_val, _ = get_thermal_stats(cur_fmode)
+                if temp_val is not None:
+                    if temp_val >= 78:
+                        desired_pwm = 255
+                    elif temp_val >= 68 and desired_pwm < 192:
+                        desired_pwm = 192
 
-            for p in ["/sys/devices/platform/pwm-fan", "/sys/bus/platform/devices/pwm-fan", "/sys/devices/pwm-fan"]:
-                if os.path.isdir(p):
-                    tc = os.path.join(p, "temp_control")
-                    tp = os.path.join(p, "target_pwm")
-                pwmc = os.path.join(p, "pwm_cap")
-                sc = os.path.join(p, "state_cap")
-                if os.path.exists(pwmc):
-                    try:
-                        with open(pwmc, "r+") as f:
-                            if f.read().strip() != "255":
-                                f.seek(0)
-                                f.write("255\n")
-                    except Exception:
-                        pass
-                if os.path.exists(sc):
-                    try:
-                        with open(sc, "r+") as f:
-                            if f.read().strip() != "9":
-                                f.seek(0)
-                                f.write("9\n")
-                    except Exception:
-                        pass
-                if os.path.exists(tc):
-                    try:
-                        with open(tc, "r+") as f:
-                            if f.read().strip() != "0":
-                                f.seek(0)
-                                f.write("0\n")
-                    except Exception:
-                        pass
-                if os.path.exists(tp):
-                    try:
-                        with open(tp, "r+") as f:
-                            cur_p = f.read().strip()
-                            if cur_p != str(desired_pwm):
-                                f.seek(0)
-                                f.write(f"{desired_pwm}\n")
-                    except Exception:
-                        pass
+                for p in ["/sys/devices/pwm-fan", "/sys/bus/platform/devices/pwm-fan"]:
+                    if os.path.isdir(p):
+                        pwmc = os.path.join(p, "pwm_cap")
+                        sc = os.path.join(p, "state_cap")
+                        tc = os.path.join(p, "temp_control")
+                        tp = os.path.join(p, "target_pwm")
+                        if os.path.exists(pwmc):
+                            try:
+                                with open(pwmc, "r+") as f:
+                                    if f.read().strip() != "255":
+                                        f.seek(0)
+                                        f.write("255\n")
+                            except Exception:
+                                pass
+                        if os.path.exists(sc):
+                            try:
+                                with open(sc, "r+") as f:
+                                    if f.read().strip() != "9":
+                                        f.seek(0)
+                                        f.write("9\n")
+                            except Exception:
+                                pass
+                        if os.path.exists(tc):
+                            try:
+                                with open(tc, "r+") as f:
+                                    if f.read().strip() != "0":
+                                        f.seek(0)
+                                        f.write("0\n")
+                            except Exception:
+                                pass
+                        if os.path.exists(tp):
+                            try:
+                                with open(tp, "r+") as f:
+                                    cur_p = f.read().strip()
+                                    if cur_p != str(desired_pwm):
+                                        f.seek(0)
+                                        f.write(f"{desired_pwm}\n")
+                            except Exception:
+                                pass
+                        break
 
-        update_indicator_label()
+            update_indicator_label()
 
-        # Update active modes in menu if changed
-        if pmode_changed or fmode_changed:
-            fan_section = False
-            for child in main_menu.get_children():
-                lbl = child.get_label()
-                if lbl == 'Fan mode:':
-                    fan_section = True
-                    continue
-                if lbl == 'Settings:':
-                    fan_section = False
-                    continue
-                if not fan_section and pmode_changed and lbl and lbl[0] == cur_mode:
-                    pmode_changed = False
-                    if hasattr(child, 'get_active') and not child.get_active():
-                        def _set_pm(c):
-                            global updating_menu
-                            updating_menu = True
-                            c.set_active(True)
-                            updating_menu = False
-                        GObject.idle_add(_set_pm, child, priority=GObject.PRIORITY_DEFAULT)
-                if fan_section and fmode_changed and lbl and lbl[0] == cur_fmode:
-                    fmode_changed = False
-                    if hasattr(child, 'get_active') and not child.get_active():
-                        def _set_fm(c):
-                            global updating_menu
-                            updating_menu = True
-                            c.set_active(True)
-                            updating_menu = False
-                        GObject.idle_add(_set_fm, child, priority=GObject.PRIORITY_DEFAULT)
+            # Update active modes in menu if changed
+            if pmode_changed or fmode_changed:
+                fan_section = False
+                for child in main_menu.get_children():
+                    lbl = child.get_label()
+                    if lbl == 'Fan mode:':
+                        fan_section = True
+                        continue
+                    if lbl == 'Settings:':
+                        fan_section = False
+                        continue
+                    if not fan_section and pmode_changed and lbl and lbl[0] == cur_mode:
+                        pmode_changed = False
+                        if hasattr(child, 'get_active') and not child.get_active():
+                            def _set_pm(c):
+                                global updating_menu
+                                updating_menu = True
+                                c.set_active(True)
+                                updating_menu = False
+                            GObject.idle_add(_set_pm, child, priority=GObject.PRIORITY_DEFAULT)
+                    if fan_section and fmode_changed and lbl and lbl[0] == cur_fmode:
+                        fmode_changed = False
+                        if hasattr(child, 'get_active') and not child.get_active():
+                            def _set_fm(c):
+                                global updating_menu
+                                updating_menu = True
+                                c.set_active(True)
+                                updating_menu = False
+                            GObject.idle_add(_set_fm, child, priority=GObject.PRIORITY_DEFAULT)
+        except Exception:
+            pass
 
         time.sleep(2)
 
