@@ -1275,11 +1275,16 @@ fi
 # Configuración de proveedores EGL/GLVND y plataformas externas
 mkdir -p "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d" "${ROOTFS_DIR}/usr/share/egl/egl_external_platform.d"
 if [ -f "${NOBLE_ROOT}/usr/share/glvnd/egl_vendor.d/10_nvidia.json" ]; then
+    rm -f "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
     cp -f "${NOBLE_ROOT}/usr/share/glvnd/egl_vendor.d/10_nvidia.json" "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d/"
 elif [ -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json" ]; then
-    cp -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json" "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
+    if [ ! "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json" -ef "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d/10_nvidia.json" ]; then
+        rm -f "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
+        cp -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json" "${ROOTFS_DIR}/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
+    fi
 fi
 if [ -f "${NOBLE_ROOT}/usr/share/egl/egl_external_platform.d/nvidia_wayland.json" ]; then
+    rm -f "${ROOTFS_DIR}/usr/share/egl/egl_external_platform.d/nvidia_wayland.json"
     cp -f "${NOBLE_ROOT}/usr/share/egl/egl_external_platform.d/nvidia_wayland.json" "${ROOTFS_DIR}/usr/share/egl/egl_external_platform.d/"
 fi
 
