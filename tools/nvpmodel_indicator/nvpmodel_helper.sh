@@ -64,7 +64,9 @@ elif [ "$1" -eq 10 ]; then # Set fan mode (0: Console, 1: Handheld, 2: Cool, 3: 
              # 4. Disable continuous thermal governor so manual PWM persists
              [ -w "$p/temp_control" ] && echo 0 > "$p/temp_control" 2>/dev/null || true
              # 5. Ensure tachometer is enabled
-             [ -w "$p/tach_enable" ] && echo 1 > "$p/tach_enable" 2>/dev/null || true
+             if [ -w "$p/tach_enable" ]; then
+                 [ "$(cat "$p/tach_enable" 2>/dev/null)" != "1" ] && echo 1 > "$p/tach_enable" 2>/dev/null || true
+             fi
              # 6. Set desired PWM duty
              [ -w "$p/target_pwm" ] && echo "$TARGET_PWM" > "$p/target_pwm" 2>/dev/null || true
              # 7. Grant full read/write permissions for sysfs nodes

@@ -19,6 +19,7 @@ import time
 import threading
 import re
 import sys
+import glob
 
 gi.require_version("Gtk", "3.0")
 try:
@@ -61,54 +62,93 @@ auto_profiles = False
 charging_limits = False
 color_modes = False
 
-def get_thermal_stats():
+_last_known_temp = None
+
+def get_thermal_stats(cur_fan="0"):
+    global _last_known_temp
     temp = None
-    for i in range(12):
-        tz_type_f = f"/sys/class/thermal/thermal_zone{i}/type"
-        tz_temp_f = f"/sys/class/thermal/thermal_zone{i}/temp"
-        if os.path.exists(tz_type_f) and os.path.exists(tz_temp_f):
+
+    tz_paths = sorted(
+        glob.glob("/sys/class/thermal/thermal_zone*"),
+        key=lambda x: int(x.split("thermal_zone")[-1]) if x.split("thermal_zone")[-1].isdigit() else 99
+    )
+
+    # 1. Look for CPU / SoC thermal zone first
+    for tz_dir in tz_paths:
+        tz_type_f = os.path.join(tz_dir, "type")
+        tz_temp_f = os.path.join(tz_dir, "temp")
+        if os.path.isfile(tz_type_f) and os.path.isfile(tz_temp_f):
             try:
                 with open(tz_type_f, "r") as f:
-                    tz_type = f.read().strip()
-                if any(x in tz_type for x in ["CPU-therm", "PLL-therm", "Tdiode_tegra", "Tdiode"]):
+                    tz_type = f.read().strip().lower()
+                if any(x in tz_type for x in ["cpu", "pll", "tdiode", "soc", "tegra"]):
                     with open(tz_temp_f, "r") as f:
-                        t = int(f.read().strip())
-                        if t > 0:
-                            temp = round(t / 1000.0)
+                        raw = int(f.read().strip())
+                        if 0 < raw < 125000:
+                            temp = round(raw / 1000.0)
                             break
             except Exception:
                 pass
-    if temp is None:
-        try:
-            with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
-                t = int(f.read().strip())
-                if t > 0:
-                    temp = round(t / 1000.0)
-        except Exception:
-            pass
 
-    fan_info = None
+    # 2. Fallback: check any thermal zone reporting valid millidegrees (10C to 110C)
+    if temp is None:
+        for tz_dir in tz_paths:
+            tz_temp_f = os.path.join(tz_dir, "temp")
+            if os.path.isfile(tz_temp_f):
+                try:
+                    with open(tz_temp_f, "r") as f:
+                        raw = int(f.read().strip())
+                        if 10000 <= raw <= 115000:
+                            temp = round(raw / 1000.0)
+                            break
+                except Exception:
+                    pass
+
+    # 3. Fallback to last known temperature if sensor was momentarily unreadable
+    if temp is not None:
+        _last_known_temp = temp
+    else:
+        temp = _last_known_temp
+
+    # Fan & RPM
     fan_dirs = [
         "/sys/devices/platform/pwm-fan",
         "/sys/bus/platform/devices/pwm-fan",
         "/sys/devices/pwm-fan",
     ]
+
+    target_pwm_pct_map = {"1": 30, "0": 50, "2": 75, "3": 100}
+    fallback_pwm = target_pwm_pct_map.get(str(cur_fan), 50)
+    pwm = None
+    rpm = None
+
     for fd in fan_dirs:
         if os.path.isdir(fd):
-            rpm = None
-            pwm = None
-            rpm_file = os.path.join(fd, "rpm_measured")
-            if os.path.exists(rpm_file):
+            # Ensure tachometer is enabled if not already
+            tach_file = os.path.join(fd, "tach_enable")
+            if os.path.isfile(tach_file):
                 try:
-                    with open(rpm_file, "r") as f:
-                        val = int(f.read().strip())
-                        if val > 0:
-                            rpm = val
+                    with open(tach_file, "r+") as f:
+                        if f.read().strip() == "0":
+                            f.seek(0)
+                            f.write("1\n")
                 except Exception:
                     pass
+
+            # Read measured RPM
+            rpm_file = os.path.join(fd, "rpm_measured")
+            if os.path.isfile(rpm_file):
+                try:
+                    with open(rpm_file, "r") as f:
+                        v = int(f.read().strip())
+                        rpm = v
+                except Exception:
+                    pass
+
+            # Read current PWM duty
             for pf in ["cur_pwm", "target_pwm"]:
                 pwm_file = os.path.join(fd, pf)
-                if os.path.exists(pwm_file):
+                if os.path.isfile(pwm_file):
                     try:
                         with open(pwm_file, "r") as f:
                             pwm_val = int(f.read().strip())
@@ -116,13 +156,17 @@ def get_thermal_stats():
                             break
                     except Exception:
                         pass
-            if rpm is not None and pwm is not None:
-                fan_info = f"{pwm}% ({rpm} RPM)"
-            elif rpm is not None:
-                fan_info = f"{rpm} RPM"
-            elif pwm is not None:
-                fan_info = f"{pwm}%"
             break
+
+    if pwm is None:
+        pwm = fallback_pwm
+
+    if rpm is not None and rpm > 0:
+        fan_info = f"{pwm}% ({rpm} RPM)"
+    elif rpm is not None:
+        fan_info = f"{pwm}% (0 RPM)"
+    else:
+        fan_info = f"{pwm}%"
 
     return temp, fan_info
 
@@ -142,17 +186,15 @@ updating_menu = False
 def update_indicator_label(force_fmode=None):
     cur_pwr = pm.cur_mode()
     cur_fan = force_fmode if force_fmode is not None else get_custom_fan_mode()
-    temp_val, fan = get_thermal_stats()
+    temp_val, fan_str = get_thermal_stats(cur_fan)
 
     pwr_name = pm.get_name_by_id(cur_pwr) or "Console"
     label_parts = [pwr_name]
     if temp_val is not None:
         label_parts.append(f"{temp_val}°C")
-    if fan is not None:
-        label_parts.append(f"Fan: {fan}")
     else:
-        pwm_pct = {"1": "30%", "0": "50%", "2": "75%", "3": "100%"}.get(cur_fan, "50%")
-        label_parts.append(f"Fan: {pwm_pct}")
+        label_parts.append("--°C")
+    label_parts.append(f"Fan: {fan_str}")
 
     final_label = " | ".join(label_parts) + "  "
     GObject.idle_add(indicator.set_label, final_label, INDICATOR_ID, priority=GObject.PRIORITY_DEFAULT)
@@ -182,8 +224,39 @@ def set_fan_mode(item, mode_id):
     if updating_menu:
         return
     if item.get_active():
-        subprocess.call(['pkexec', nvpmodel_helper_path, '10', str(mode_id)])
-        update_indicator_label(force_fmode=str(mode_id))
+        mode_str = str(mode_id)
+        target_pwm_map = {"1": 77, "0": 128, "2": 192, "3": 255}
+        desired_pwm = target_pwm_map.get(mode_str, 128)
+
+        # 1. Direct immediate write to sysfs if writable (zero delay!)
+        for p in ["/sys/devices/platform/pwm-fan", "/sys/bus/platform/devices/pwm-fan", "/sys/devices/pwm-fan"]:
+            if os.path.isdir(p):
+                try:
+                    with open(os.path.join(p, "temp_control"), "w") as f:
+                        f.write("0\n")
+                    with open(os.path.join(p, "pwm_cap"), "w") as f:
+                        f.write("255\n")
+                    with open(os.path.join(p, "state_cap"), "w") as f:
+                        f.write("9\n")
+                    with open(os.path.join(p, "target_pwm"), "w") as f:
+                        f.write(f"{desired_pwm}\n")
+                except Exception:
+                    pass
+
+        # 2. Save mode to custom_fan_mode file directly
+        try:
+            with open("/var/lib/nvpmodel/custom_fan_mode", "w") as f:
+                f.write(f"{mode_str}\n")
+        except Exception:
+            pass
+
+        # 3. Also trigger helper via pkexec in background thread to guarantee persistence and profile
+        def _run_helper():
+            subprocess.call(['pkexec', nvpmodel_helper_path, '10', mode_str])
+        threading.Thread(target=_run_helper, daemon=True).start()
+
+        # 4. Immediately update UI label
+        update_indicator_label(force_fmode=mode_str)
 
 
 def set_chg_mode(item, mode_id):
@@ -402,7 +475,7 @@ def mode_change_monitor(running):
             desired_pwm = target_pwm_map.get(cur_fmode, 128)
 
             # Thermal safety boost: if temperature rises dangerously high, ramp fan up
-            temp_val, _ = get_thermal_stats()
+            temp_val, _ = get_thermal_stats(cur_fmode)
             if temp_val is not None:
                 if temp_val >= 78:
                     desired_pwm = 255
@@ -410,8 +483,9 @@ def mode_change_monitor(running):
                     desired_pwm = 192
 
             for p in ["/sys/devices/platform/pwm-fan", "/sys/bus/platform/devices/pwm-fan", "/sys/devices/pwm-fan"]:
-                tc = os.path.join(p, "temp_control")
-                tp = os.path.join(p, "target_pwm")
+                if os.path.isdir(p):
+                    tc = os.path.join(p, "temp_control")
+                    tp = os.path.join(p, "target_pwm")
                 pwmc = os.path.join(p, "pwm_cap")
                 sc = os.path.join(p, "state_cap")
                 if os.path.exists(pwmc):
@@ -516,6 +590,7 @@ indicator.set_label(init_pwr + '  ', INDICATOR_ID)
 indicator.set_status(appindicator.IndicatorStatus.ACTIVE)
 main_menu = build_menu()
 indicator.set_menu(main_menu)
+update_indicator_label()
 
 # Set active modes in menu
 fan_section = False
