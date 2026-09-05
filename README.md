@@ -47,7 +47,7 @@ A complete GNU/Linux distribution based on **Debian 13 (Trixie)** for the Ninten
 ## Hardware Support
 
 | Model | Supported | 8gb RAM | Notes |
-| :--- | :---: | :--- |
+| :--- | :---: | :---: | :--- |
 | **Nintendo Switch V1 (Erista)** | Yes | Yes | RCM exploit or modchip |
 | **Nintendo Switch V2 (Mariko)** | Yes | Yes | Modchip required |
 | **Nintendo Switch Lite** | Yes | Yes | Modchip required |
