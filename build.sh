@@ -254,7 +254,7 @@ autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
-xserver-command=X -core
+xserver-command=X -core -ignoreABI
 session-wrapper=/etc/X11/Xsession
 EOF
 
@@ -266,7 +266,7 @@ autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
-xserver-command=X -core
+xserver-command=X -core -ignoreABI
 session-wrapper=/etc/X11/Xsession
 EOF
 
@@ -277,9 +277,14 @@ autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
-xserver-command=X -core
+xserver-command=X -core -ignoreABI
 session-wrapper=/etc/X11/Xsession
 EOF
+
+# Corregir directiva obsoleta SeatDefaults en 50-nvidia.conf si existe
+if [ -f "${ROOTFS_DIR}/etc/lightdm/lightdm.conf.d/50-nvidia.conf" ]; then
+    sed -i 's/\[SeatDefaults\]/\[Seat:*\]/g' "${ROOTFS_DIR}/etc/lightdm/lightdm.conf.d/50-nvidia.conf"
+fi
 
 # Configuración del Greeter GTK
 cat << 'EOF' > "${ROOTFS_DIR}/etc/lightdm/lightdm-gtk-greeter.conf"
@@ -341,6 +346,11 @@ EOF
 cat << 'EOF' > "${ROOTFS_DIR}/etc/X11/xorg.conf"
 # Copyright (c) 2011-2013 NVIDIA CORPORATION.  All Rights Reserved.
 
+Section "ServerFlags"
+    Option "IgnoreABI" "true"
+    Option "DontVTSwitch" "false"
+EndSection
+
 Section "Module"
     Disable     "dri"
     SubSection  "extmod"
@@ -356,6 +366,13 @@ Section "Device"
     Option      "AllowEmptyInitialConfiguration" "true"
     Option      "Monitor-DSI-0" "Monitor0"
     Option      "Monitor-DP-0" "Monitor1"
+EndSection
+EOF
+
+cat << 'EOF' > "${ROOTFS_DIR}/etc/X11/xorg.conf.d/00-serverflags.conf"
+Section "ServerFlags"
+    Option "IgnoreABI" "true"
+    Option "DontVTSwitch" "false"
 EndSection
 EOF
 
@@ -448,6 +465,11 @@ mkdir -p "${ROOTFS_DIR}/var/lib/lightdm/data" "${ROOTFS_DIR}/var/cache/lightdm" 
 chown -R 105:110 "${ROOTFS_DIR}/var/lib/lightdm" "${ROOTFS_DIR}/var/cache/lightdm" "${ROOTFS_DIR}/run/lightdm" 2>/dev/null || true
 chmod 755 "${ROOTFS_DIR}/var/lib/lightdm" "${ROOTFS_DIR}/var/cache/lightdm" "${ROOTFS_DIR}/var/log/lightdm"
 chmod 750 "${ROOTFS_DIR}/var/lib/lightdm/data"
+
+# Desactivar pam_loginuid.so para LightDM en kernel L4T 4.9 (incompatible con loginuid no interactivo)
+if [ -d "${ROOTFS_DIR}/etc/pam.d" ]; then
+    sed -i 's/^\s*session\s\+required\s\+pam_loginuid.so/#session required pam_loginuid.so/' "${ROOTFS_DIR}/etc/pam.d/lightdm"* 2>/dev/null || true
+fi
 
 # Asegurar que lightdm pertenezca a los grupos gráficos y de entrada necesarios
 for grp in video render input; do
@@ -1277,11 +1299,24 @@ if [ -d "${NOBLE_ROOT}/usr/lib/xorg" ]; then
     chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" 2>/dev/null || true
     chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
 
-    # Script de arranque de Xorg: exportar LD_LIBRARY_PATH y arrancar nativo sin SUID
+    # Script de arranque de Xorg: exportar LD_LIBRARY_PATH y arrancar nativo con -ignoreABI
     cat << 'EOF' > "${ROOTFS_DIR}/usr/bin/Xorg"
 #!/bin/sh
 basedir=/usr/lib/xorg
 export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/tegra:${LD_LIBRARY_PATH:-}"
+
+has_ignore_abi=0
+for arg in "$@"; do
+    if [ "$arg" = "-ignoreABI" ]; then
+        has_ignore_abi=1
+        break
+    fi
+done
+
+if [ "$has_ignore_abi" -eq 0 ]; then
+    set -- "$@" -ignoreABI
+fi
+
 if [ "$(id -u)" = "0" ]; then
     exec "$basedir"/Xorg "$@"
 elif [ -x "$basedir"/Xorg.wrap ]; then
@@ -1762,7 +1797,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chmod 0755 /usr/lib/xorg/Xorg /usr/lib/xorg/Xorg.wrap 2>/dev/null; /sbin/ldconfig 2>/dev/null || true; mkdir -p /run/polkit-1/rules.d 2>/dev/null; adduser lightdm video 2>/dev/null || true; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel /var/lib/nvpmodel/* 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/nvpmodel ] && ln -sf /usr/sbin/nvpmodel /usr/bin/nvpmodel 2>/dev/null; chmod 666 /sys/devices/platform/pwm-fan/* /sys/devices/pwm-fan/* /sys/devices/platform/thermal-fan-est/* 2>/dev/null || true; [ -x /usr/share/nvpmodel_indicator/nvpmodel_helper.sh ] && /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 10 $(cat /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || echo 0) 2>/dev/null || true; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chmod 0755 /usr/lib/xorg/Xorg /usr/lib/xorg/Xorg.wrap 2>/dev/null; /sbin/ldconfig 2>/dev/null || true; mkdir -p /run/polkit-1/rules.d 2>/dev/null; adduser lightdm video 2>/dev/null || true; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel /var/lib/nvpmodel/* 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/nvpmodel ] && ln -sf /usr/sbin/nvpmodel /usr/bin/nvpmodel 2>/dev/null; chmod 666 /sys/devices/platform/pwm-fan/* /sys/devices/pwm-fan/* /sys/devices/platform/thermal-fan-est/* 2>/dev/null || true; [ -x /usr/share/nvpmodel_indicator/nvpmodel_helper.sh ] && /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 10 $(cat /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || echo 0) 2>/dev/null || true; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true; sed -i "s/^\s*session\s\+required\s\+pam_loginuid.so/#session required pam_loginuid.so/" /etc/pam.d/lightdm* 2>/dev/null || true; mkdir -p /etc/X11/xorg.conf.d 2>/dev/null; [ ! -f /etc/X11/xorg.conf.d/00-serverflags.conf ] && printf '\''Section "ServerFlags"\n    Option "IgnoreABI" "true"\n    Option "DontVTSwitch" "false"\nEndSection\n'\'' > /etc/X11/xorg.conf.d/00-serverflags.conf 2>/dev/null || true; sed -i "s|xserver-command=X -core$|xserver-command=X -core -ignoreABI|g" /etc/lightdm/lightdm.conf /etc/lightdm/lightdm.conf.d/*.conf /usr/share/lightdm/lightdm.conf.d/*.conf 2>/dev/null || true; [ -f /etc/lightdm/lightdm.conf.d/50-nvidia.conf ] && sed -i "s/\[SeatDefaults\]/\[Seat:*\]/g" /etc/lightdm/lightdm.conf.d/50-nvidia.conf 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]

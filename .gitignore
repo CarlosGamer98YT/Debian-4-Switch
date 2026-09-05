@@ -36,6 +36,7 @@
 
 # Debug and Diagnostic Logs
 logs_*.txt
+debug_*.txt
 *.log
 
 # Python Cache & Virtual Environments
