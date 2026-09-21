@@ -1,6 +1,6 @@
 # Switchroot Debian 13 (Trixie) for Nintendo Switch
 
-[![Build & Publish Switchroot Release](https://github.com/CarlosGamer98YT/Debian-4-Xitch/actions/workflows/release.yml/badge.svg)](https://github.com/CarlosGamer98YT/Debian-4-Xitch/actions/workflows/release.yml)
+[![Build & Publish Switchroot Release](https://github.com/CarlosGamer98YT/Debian-4-Switch/actions/workflows/release.yml/badge.svg)](https://github.com/CarlosGamer98YT/Debian-4-Switch/actions/workflows/release.yml)
 [![Debian Version](https://img.shields.io/badge/Debian-13%20(Trixie)-crimson.svg)](https://www.debian.org/)
 [![Kernel](https://img.shields.io/badge/Kernel-4.9.140--l4t%2B-blue.svg)](https://developer.nvidia.com/embedded/linux-tegra)
 [![Architecture](https://img.shields.io/badge/Arch-arm64%20%2F%20aarch64-green.svg)](https://wiki.debian.org/Arm64Port)
