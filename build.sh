@@ -27,11 +27,13 @@ echo "========================================================================"
 # ------------------------------------------------------------------------------
 echo "[*] Paso 0: Verificando herramientas de compilación cruzada..."
 mkdir -p "${TOOLS_DIR}/cross-bin" "${WORKDIR}" "${DOWNLOADS_DIR}"
+export PATH="${TOOLS_DIR}/cross-bin:${TOOLS_DIR}/usr/bin:${PATH}"
+export LD_LIBRARY_PATH="${TOOLS_DIR}/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
 
 if command -v aarch64-linux-gnu-gcc &> /dev/null; then
     CROSS_COMPILE="aarch64-linux-gnu-"
     export CROSS_COMPILE
-    echo "[✓] Toolchain cruzada del sistema detectada: $(aarch64-linux-gnu-gcc --version | head -n 1)"
+    echo "[✓] Toolchain cruzada detectada: $(aarch64-linux-gnu-gcc --version | head -n 1)"
 else
     echo "[!] Toolchain cruzada no instalada en sistema. Configurando toolchain local..."
     cd "${TOOLS_DIR}"
@@ -72,62 +74,74 @@ echo "[*] Paso 1: Preparando Debian 13 (Trixie) ARM64 RootFS..."
 RAW_IMAGE="${DOWNLOADS_DIR}/debian-13-nocloud-arm64-daily.tar.xz"
 ROOTFS_EXT4="${DOWNLOADS_DIR}/rootfs.ext4"
 
-if [ ! -f "${ROOTFS_EXT4}" ]; then
-    echo "[*] Descargando imagen oficial base Debian 13 (Trixie) ARM64..."
-    curl -L -o "${RAW_IMAGE}" "https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-nocloud-arm64-daily.tar.xz"
-    tar -xf "${RAW_IMAGE}" -C "${DOWNLOADS_DIR}/"
-    7z x -so "${DOWNLOADS_DIR}/disk.raw" 0.img > "${ROOTFS_EXT4}"
+if [ -d "${ROOTFS_DIR}/etc" ] && [ "${FORCE_REEXTRACT:-0}" != "1" ]; then
+    echo "[✓] RootFS existente detectado en ${ROOTFS_DIR}. Omitiendo descarga y extracción base."
+else
+    if [ ! -f "${ROOTFS_EXT4}" ]; then
+        echo "[*] Descargando imagen oficial base Debian 13 (Trixie) ARM64..."
+        curl -L -o "${RAW_IMAGE}" "https://cloud.debian.org/images/cloud/trixie/daily/latest/debian-13-nocloud-arm64-daily.tar.xz"
+        tar -xf "${RAW_IMAGE}" -C "${DOWNLOADS_DIR}/"
+        7z x -so "${DOWNLOADS_DIR}/disk.raw" 0.img > "${ROOTFS_EXT4}"
+    fi
+
+    echo "[*] Extrayendo RootFS preservando enlaces simbólicos..."
+    chmod -R u+rwX "${ROOTFS_DIR}" 2>/dev/null || true
+    rm -rf "${ROOTFS_DIR}" 2>/dev/null || mv "${ROOTFS_DIR}" "${ROOTFS_DIR}.old.$$" 2>/dev/null || true
+    mkdir -p "${ROOTFS_DIR}"
+    /sbin/debugfs -R "rdump / ${ROOTFS_DIR}" "${ROOTFS_EXT4}" > /dev/null 2>&1 || true
+
+    echo "  -> Liberando espacio de imágenes crudas temporales de Debian..."
+    rm -f "${RAW_IMAGE}" "${ROOTFS_EXT4}" "${DOWNLOADS_DIR}/disk.raw" 2>/dev/null || true
 fi
-
-echo "[*] Extrayendo RootFS preservando enlaces simbólicos..."
-chmod -R u+rwX "${ROOTFS_DIR}" 2>/dev/null || true
-rm -rf "${ROOTFS_DIR}" 2>/dev/null || mv "${ROOTFS_DIR}" "${ROOTFS_DIR}.old.$$" 2>/dev/null || true
-mkdir -p "${ROOTFS_DIR}"
-/sbin/debugfs -R "rdump / ${ROOTFS_DIR}" "${ROOTFS_EXT4}" > /dev/null 2>&1 || true
-
-echo "  -> Liberando espacio de imágenes crudas temporales de Debian..."
-rm -f "${RAW_IMAGE}" "${ROOTFS_EXT4}" "${DOWNLOADS_DIR}/disk.raw" 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # PASO 2: Compilación de Kernel Linux 4.9 L4T y Device Trees
 # ------------------------------------------------------------------------------
 echo "[*] Paso 2: Compilando Kernel Linux Switch L4T y Device Trees..."
 mkdir -p "${CWD}/kernel"
-if [ ! -d "${KERNEL_DIR}" ]; then
-    echo "  -> Clonando switch-l4t-kernel-4.9..."
-    git clone --depth 1 -b "linux-dev" https://github.com/theofficialgman/switch-l4t-kernel-4.9.git "${KERNEL_DIR}"
-fi
-if [ ! -d "${CWD}/kernel/nvidia" ]; then
-    echo "  -> Clonando subsistemas y drivers Nvidia Tegra..."
-    git clone --depth 1 -b "linux-dev" https://github.com/theofficialgman/switch-l4t-kernel-nvidia.git "${CWD}/kernel/nvidia"
-    git clone --depth 1 -b "linux-dev" https://github.com/theofficialgman/switch-l4t-platform-t210-nx.git "${CWD}/kernel/hardware/nvidia/platform/t210/nx"
-    git clone --depth 1 -b "linux-3.4.0-r32.5" https://gitlab.com/switchroot/kernel/l4t-kernel-nvgpu "${CWD}/kernel/nvgpu"
-    git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-soc-t210 "${CWD}/kernel/hardware/nvidia/soc/t210"
-    git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-soc-tegra "${CWD}/kernel/hardware/nvidia/soc/tegra/"
-    git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-platform-tegra-common "${CWD}/kernel/hardware/nvidia/platform/tegra/common/"
-    git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-platform-t210-common "${CWD}/kernel/hardware/nvidia/platform/t210/common/"
-    
-    if [ -f "${CWD}/patches/kernel/0001-Bluetooth-backport-BlueZ-5.8x-mgmt-opcodes-and-fix-c.patch" ]; then
-        echo "  -> Aplicando parche Bluetooth para BlueZ 5.8x..."
-        git -C "${KERNEL_DIR}" apply "${CWD}/patches/kernel/0001-Bluetooth-backport-BlueZ-5.8x-mgmt-opcodes-and-fix-c.patch" || true
+if [ -f "${KERNEL_DIR}/arch/arm64/boot/Image.gz" ] && [ "${FORCE_REBUILD_KERNEL:-0}" != "1" ]; then
+    echo "[✓] Kernel compilado detectado en ${KERNEL_DIR}. Omitiendo recompilación completa..."
+    echo "[*] Verificando e instalando módulos del kernel en RootFS..."
+    cd "${KERNEL_DIR}"
+    make modules_install INSTALL_MOD_PATH="${ROOTFS_DIR}" 2>/dev/null || true
+    cd "${CWD}"
+else
+    if [ ! -d "${KERNEL_DIR}" ]; then
+        echo "  -> Clonando switch-l4t-kernel-4.9..."
+        git clone --depth 1 -b "linux-dev" https://github.com/theofficialgman/switch-l4t-kernel-4.9.git "${KERNEL_DIR}"
     fi
+    if [ ! -d "${CWD}/kernel/nvidia" ]; then
+        echo "  -> Clonando subsistemas y drivers Nvidia Tegra..."
+        git clone --depth 1 -b "linux-dev" https://github.com/theofficialgman/switch-l4t-kernel-nvidia.git "${CWD}/kernel/nvidia"
+        git clone --depth 1 -b "linux-dev" https://github.com/theofficialgman/switch-l4t-platform-t210-nx.git "${CWD}/kernel/hardware/nvidia/platform/t210/nx"
+        git clone --depth 1 -b "linux-3.4.0-r32.5" https://gitlab.com/switchroot/kernel/l4t-kernel-nvgpu "${CWD}/kernel/nvgpu"
+        git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-soc-t210 "${CWD}/kernel/hardware/nvidia/soc/t210"
+        git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-soc-tegra "${CWD}/kernel/hardware/nvidia/soc/tegra/"
+        git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-platform-tegra-common "${CWD}/kernel/hardware/nvidia/platform/tegra/common/"
+        git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-platform-t210-common "${CWD}/kernel/hardware/nvidia/platform/t210/common/"
+        
+        if [ -f "${CWD}/patches/kernel/0001-Bluetooth-backport-BlueZ-5.8x-mgmt-opcodes-and-fix-c.patch" ]; then
+            echo "  -> Aplicando parche Bluetooth para BlueZ 5.8x..."
+            git -C "${KERNEL_DIR}" apply "${CWD}/patches/kernel/0001-Bluetooth-backport-BlueZ-5.8x-mgmt-opcodes-and-fix-c.patch" || true
+        fi
+    fi
+
+    cd "${KERNEL_DIR}"
+    export KCFLAGS="-w"
+
+    if [ ! -f ".config" ]; then
+        make tegra_linux_defconfig
+    fi
+
+    make -j"$(nproc)" Image.gz modules dtbs tegra-dtstree="../hardware/nvidia"
+
+    echo "[*] Instalando módulos del kernel en RootFS..."
+    make modules_install INSTALL_MOD_PATH="${ROOTFS_DIR}"
+    echo "  -> Liberando espacio de objetos compilados intermedios del kernel..."
+    find "${KERNEL_DIR}" -name "*.o" -delete 2>/dev/null || true
+    rm -f "${KERNEL_DIR}/vmlinux" 2>/dev/null || true
+    cd "${CWD}"
 fi
-
-cd "${KERNEL_DIR}"
-export KCFLAGS="-w"
-
-if [ ! -f ".config" ]; then
-    make tegra_linux_defconfig
-fi
-
-make -j"$(nproc)" Image.gz modules dtbs tegra-dtstree="../hardware/nvidia"
-
-echo "[*] Instalando módulos del kernel en RootFS..."
-make modules_install INSTALL_MOD_PATH="${ROOTFS_DIR}"
-echo "  -> Liberando espacio de objetos compilados intermedios del kernel..."
-find "${KERNEL_DIR}" -name "*.o" -delete 2>/dev/null || true
-rm -f "${KERNEL_DIR}/vmlinux" 2>/dev/null || true
-cd "${CWD}"
 
 # ------------------------------------------------------------------------------
 # PASO 3: Inyección de Paquetes de Switch y Entorno Gráfico XFCE4
@@ -174,8 +188,12 @@ for deb in "${WORKDIR}"/*.deb; do
   fi
 done
 
-echo "[*] Instalando entorno gráfico XFCE4, LightDM y utilidades táctiles..."
-python3 "${TOOLS_DIR}/install_gui.py"
+if [ -d "${ROOTFS_DIR}/usr/share/xfce4" ] && [ "${FORCE_REINSTALL_GUI:-0}" != "1" ]; then
+    echo "[✓] Entorno gráfico XFCE4 ya instalado en RootFS. Omitiendo descarga masiva de paquetes GUI."
+else
+    echo "[*] Instalando entorno gráfico XFCE4, LightDM y utilidades táctiles..."
+    python3 "${TOOLS_DIR}/install_gui.py"
+fi
 
 # ------------------------------------------------------------------------------
 # PASO 4: Configuración del Sistema Debian 13 (Trixie) y UsrMerge
@@ -254,8 +272,9 @@ autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
-xserver-command=X -core -ignoreABI
+xserver-command=X -ignoreABI
 session-wrapper=/etc/X11/Xsession
+logind-check-graphical=false
 EOF
 
 # Configuración complementaria en conf.d para asegurar precedencia
@@ -266,8 +285,9 @@ autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
-xserver-command=X -core -ignoreABI
+xserver-command=X -ignoreABI
 session-wrapper=/etc/X11/Xsession
+logind-check-graphical=false
 EOF
 
 cat << 'EOF' > "${ROOTFS_DIR}/usr/share/lightdm/lightdm.conf.d/99-switch-autologin.conf"
@@ -277,8 +297,9 @@ autologin-user-timeout=0
 user-session=xfce
 greeter-session=lightdm-gtk-greeter
 greeter-show-manual-login=false
-xserver-command=X -core -ignoreABI
+xserver-command=X -ignoreABI
 session-wrapper=/etc/X11/Xsession
+logind-check-graphical=false
 EOF
 
 # Corregir directiva obsoleta SeatDefaults en 50-nvidia.conf si existe
@@ -407,8 +428,6 @@ Section "InputClass"
     MatchDevicePath "/dev/input/event*"
     Driver "libinput"
     Option "TransformationMatrix" "1 0 0 0 1 0 0 0 1"
-    Option "SendCoreEvents" "true"
-    Option "TapButton1" "1"
 EndSection
 
 Section "InputClass"
@@ -417,8 +436,6 @@ Section "InputClass"
     MatchDevicePath "/dev/input/event*"
     Driver "libinput"
     Option "TransformationMatrix" "1 0 0 0 1 0 0 0 1"
-    Option "SendCoreEvents" "true"
-    Option "TapButton1" "1"
 EndSection
 
 Section "InputClass"
@@ -427,8 +444,6 @@ Section "InputClass"
     MatchDevicePath "/dev/input/event*"
     Driver "libinput"
     Option "TransformationMatrix" "1 0 0 0 1 0 0 0 1"
-    Option "SendCoreEvents" "true"
-    Option "TapButton1" "1"
 EndSection
 EOF
 
@@ -609,8 +624,9 @@ Categories=Settings;HardwareSettings;System;
 EOF
 
 # Script para reactivar la pantalla de Nintendo Switch al reanudar de suspensión
-mkdir -p "${ROOTFS_DIR}/lib/systemd/system-sleep" "${ROOTFS_DIR}/usr/lib/systemd/system-sleep"
-cat << 'EOF' > "${ROOTFS_DIR}/lib/systemd/system-sleep/99-switch-display-wake.sh"
+mkdir -p "${ROOTFS_DIR}/usr/lib/systemd/system-sleep"
+rm -f "${ROOTFS_DIR}/usr/lib/systemd/system-sleep/99-switch-display-wake.sh"
+cat << 'EOF' > "${ROOTFS_DIR}/usr/lib/systemd/system-sleep/99-switch-display-wake.sh"
 #!/bin/sh
 # Wake up Nintendo Switch display on resume from sleep
 case "$1/$2" in
@@ -629,8 +645,7 @@ case "$1/$2" in
 esac
 exit 0
 EOF
-chmod 755 "${ROOTFS_DIR}/lib/systemd/system-sleep/99-switch-display-wake.sh"
-ln -sf /lib/systemd/system-sleep/99-switch-display-wake.sh "${ROOTFS_DIR}/usr/lib/systemd/system-sleep/99-switch-display-wake.sh" 2>/dev/null || true
+chmod 755 "${ROOTFS_DIR}/usr/lib/systemd/system-sleep/99-switch-display-wake.sh"
 
 # Pre-configuración de XFCE4: Tema, Iconos, Panel y Applets
 mkdir -p "${ROOTFS_DIR}/etc/xdg/xfce4/xfconf/xfce-perchannel-xml"
@@ -1082,6 +1097,8 @@ chmod 600 "${ROOTFS_DIR}/etc/netplan/01-network-manager.yaml"
 
 # 6. Permisos Sudo y SUID obligatorios
 mkdir -p "${ROOTFS_DIR}/etc/sudoers.d"
+chmod -R u+w "${ROOTFS_DIR}/etc/sudoers.d" "${ROOTFS_DIR}/etc/sudoers" 2>/dev/null || true
+rm -f "${ROOTFS_DIR}/etc/sudoers.d/010_switch-nopasswd"
 echo "switch ALL=(ALL:ALL) NOPASSWD: ALL" > "${ROOTFS_DIR}/etc/sudoers.d/010_switch-nopasswd"
 chmod 0440 "${ROOTFS_DIR}/etc/sudoers.d/010_switch-nopasswd"
 chmod 0440 "${ROOTFS_DIR}/etc/sudoers"
@@ -1258,6 +1275,26 @@ if [ -d "${NOBLE_ROOT}/usr/lib/aarch64-linux-gnu/tegra" ]; then
     cp -rn "${NOBLE_ROOT}/usr/lib/aarch64-linux-gnu/tegra-egl"/* "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl/" 2>/dev/null || true
 fi
 
+# Neutralizar libdrm antiguo de Tegra (debe ser libdrm.orig para evitar colisión con Debian)
+if [ -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2" ]; then
+    mv -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libdrm.orig"
+fi
+rm -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libdrm.so"* 2>/dev/null || true
+
+# Restaurar symlink nativo de libdrm.so.2 de Debian 13
+DEB_LIBDRM=$(find "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu" -maxdepth 1 -name "libdrm.so.2.*" 2>/dev/null | head -n 1)
+if [ -n "${DEB_LIBDRM}" ]; then
+    rm -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/libdrm.so.2"
+    ln -sf "$(basename "${DEB_LIBDRM}")" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/libdrm.so.2"
+fi
+
+# Restaurar symlink nativo de libgbm.so.1 de Debian 13
+DEB_LIBGBM=$(find "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu" -maxdepth 1 -name "libgbm.so.1.*" 2>/dev/null | head -n 1)
+if [ -n "${DEB_LIBGBM}" ]; then
+    rm -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/libgbm.so.1"
+    ln -sf "$(basename "${DEB_LIBGBM}")" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/libgbm.so.1"
+fi
+
 ln -sf aarch64-linux-gnu/tegra "${ROOTFS_DIR}/usr/lib/tegra" 2>/dev/null || true
 ln -sf aarch64-linux-gnu/tegra-egl "${ROOTFS_DIR}/usr/lib/tegra-egl" 2>/dev/null || true
 cat << 'EOF' > "${ROOTFS_DIR}/etc/ld.so.conf.d/nvidia-tegra.conf"
@@ -1273,9 +1310,12 @@ if [ -d "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra" ]; then
     for lib in "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra"/*.so*; do
         [ -f "$lib" ] || [ -L "$lib" ] || continue
         bname="$(basename "$lib")"
-        if [ "$bname" != "libdrm.so.2" ] || [ ! -e "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/$bname" ]; then
-            ln -sf "tegra/$bname" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/$bname" 2>/dev/null || true
-        fi
+        case "$bname" in
+            libdrm*|libgbm*|libnvgbm*|libv4l2*|libv4lconvert*)
+                continue
+                ;;
+        esac
+        ln -sf "tegra/$bname" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/$bname" 2>/dev/null || true
     done
 fi
 
@@ -1809,7 +1849,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chmod 0755 /usr/lib/xorg/Xorg /usr/lib/xorg/Xorg.wrap 2>/dev/null; /sbin/ldconfig 2>/dev/null || true; mkdir -p /run/polkit-1/rules.d 2>/dev/null; adduser lightdm video 2>/dev/null || true; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel /var/lib/nvpmodel/* 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/nvpmodel ] && ln -sf /usr/sbin/nvpmodel /usr/bin/nvpmodel 2>/dev/null; chmod 666 /sys/devices/pwm-fan/* /sys/bus/platform/devices/pwm-fan/* /sys/devices/platform/thermal-fan-est/* /sys/kernel/tegra_cpufreq/* /sys/class/thermal/thermal_zone*/* 2>/dev/null || true; [ -x /usr/share/nvpmodel_indicator/nvpmodel_helper.sh ] && /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 10 $(cat /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || echo 0) 2>/dev/null || true; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; sed -i "s/0 -1 1 1 0 0 0 0 1/1 0 0 0 1 0 0 0 1/g" /etc/X11/xorg.conf.d/50-switch-touchscreen.conf 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true; sed -i "s/^\s*session\s\+required\s\+pam_loginuid.so/#session required pam_loginuid.so/" /etc/pam.d/lightdm* 2>/dev/null || true; mkdir -p /etc/X11/xorg.conf.d 2>/dev/null; [ ! -f /etc/X11/xorg.conf.d/00-serverflags.conf ] && printf '\''Section "ServerFlags"\n    Option "IgnoreABI" "true"\n    Option "DontVTSwitch" "false"\nEndSection\n'\'' > /etc/X11/xorg.conf.d/00-serverflags.conf 2>/dev/null || true; sed -i "s|xserver-command=X -core$|xserver-command=X -core -ignoreABI|g" /etc/lightdm/lightdm.conf /etc/lightdm/lightdm.conf.d/*.conf /usr/share/lightdm/lightdm.conf.d/*.conf 2>/dev/null || true; [ -f /etc/lightdm/lightdm.conf.d/50-nvidia.conf ] && sed -i "s/\[SeatDefaults\]/\[Seat:*\]/g" /etc/lightdm/lightdm.conf.d/50-nvidia.conf 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chmod 0755 /usr/lib/xorg/Xorg /usr/lib/xorg/Xorg.wrap 2>/dev/null; [ -f /usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2 ] && mv -f /usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2 /usr/lib/aarch64-linux-gnu/tegra/libdrm.orig 2>/dev/null || true; [ -f /usr/lib/aarch64-linux-gnu/libdrm.so.2.124.0 ] && ln -sf libdrm.so.2.124.0 /usr/lib/aarch64-linux-gnu/libdrm.so.2 2>/dev/null || true; rm -f /usr/lib/aarch64-linux-gnu/libnvgbm.so 2>/dev/null || true; [ -f /usr/lib/aarch64-linux-gnu/libgbm.so.1.0.0 ] && ln -sf libgbm.so.1.0.0 /usr/lib/aarch64-linux-gnu/libgbm.so.1 2>/dev/null || true; /sbin/ldconfig 2>/dev/null || true; mkdir -p /run/polkit-1/rules.d 2>/dev/null; adduser lightdm video 2>/dev/null || true; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel /var/lib/nvpmodel/* 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/nvpmodel ] && ln -sf /usr/sbin/nvpmodel /usr/bin/nvpmodel 2>/dev/null; chmod 666 /sys/devices/pwm-fan/* /sys/bus/platform/devices/pwm-fan/* /sys/devices/platform/thermal-fan-est/* /sys/kernel/tegra_cpufreq/* /sys/class/thermal/thermal_zone*/* 2>/dev/null || true; [ -x /usr/share/nvpmodel_indicator/nvpmodel_helper.sh ] && /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 10 $(cat /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || echo 0) 2>/dev/null || true; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true; sed -i "s/^\s*session\s\+required\s\+pam_loginuid.so/#session required pam_loginuid.so/" /etc/pam.d/lightdm* 2>/dev/null || true; mkdir -p /etc/X11/xorg.conf.d 2>/dev/null; [ ! -f /etc/X11/xorg.conf.d/00-serverflags.conf ] && printf '\''Section "ServerFlags"\n    Option "IgnoreABI" "true"\n    Option "DontVTSwitch" "false"\nEndSection\n'\'' > /etc/X11/xorg.conf.d/00-serverflags.conf 2>/dev/null || true; sed -i "s|xserver-command=X.*|xserver-command=X -ignoreABI|g" /etc/lightdm/lightdm.conf /etc/lightdm/lightdm.conf.d/*.conf /usr/share/lightdm/lightdm.conf.d/*.conf 2>/dev/null || true; [ -f /etc/lightdm/lightdm.conf.d/50-nvidia.conf ] && sed -i "s/\[SeatDefaults\]/\[Seat:*\]/g" /etc/lightdm/lightdm.conf.d/50-nvidia.conf 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]

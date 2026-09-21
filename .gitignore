@@ -37,6 +37,8 @@
 # Debug and Diagnostic Logs
 logs_*.txt
 debug_*.txt
+journalctl*.txt
+lightdm*.txt
 *.log
 
 # Python Cache & Virtual Environments
