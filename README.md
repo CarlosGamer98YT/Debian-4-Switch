@@ -101,6 +101,33 @@ A complete GNU/Linux distribution based on **Debian 13 (Trixie)** for the Ninten
 
 ---
 
+## Troubleshooting & FAQs
+
+### Joy-Con Rail Errors / Boot Loop (`joycon_serdev: received packet has wrong magic` or `malformed`)
+If your Switch repeats messages such as:
+```text
+joycon_serdev serial 0-0: Received pkt has wrong magic
+joycon_serdev serial 0-0: Received pkt is malformed
+joycon_serdev serial 0-0: Packet length too large; ignoring
+```
+This is caused by an attached Joy-Con that is physically broken, has damaged internal electronics/ribbon cable, or dirty/damaged rail pins (`serial0-0` is the Left rail, `serial1-0` is the Right rail). The kernel detects the controller presence via the physical rail pin, but receives corrupt serial packets from the faulty hardware.
+
+**Solutions:**
+1. **Physical Fix (Fastest)**: Simply **slide off and detach the broken Joy-Con** from the console. If you use a Pro Controller or Bluetooth controllers, you can keep the rail empty and Debian will boot normally.
+2. **Optional Software Setting (to keep the broken Joy-Con slotted in)**: On your SD card, edit `bootloader/ini/debian.ini` and uncomment or add `jc_rail_disable=1` under `[Debian 13 Trixie]`:
+   ```ini
+   [Debian 13 Trixie]
+   l4t=1
+   boot_prefixes=/switchroot/debian/
+   id=SWR-DEB
+   r2p_action=self
+   fbconsole=0
+   jc_rail_disable=1
+   ```
+   *(Note: Rails are fully enabled by default in Debian 4 Switch. `jc_rail_disable=1` is strictly optional for users with malfunctioning rail hardware).*
+
+---
+
 ## Building from Source
 
 ### Prerequisites (Debian/Ubuntu Host)

@@ -1,0 +1,93 @@
+From 03ea642700967c16dce65493758b412c0c5f56ba Mon Sep 17 00:00:00 2001
+From: CarlosGamer98YT <carlitochaconero@gmail.com>
+Date: Thu, 22 Oct 2026 15:15:43 +0200
+Subject: [PATCH] joycon-serdev: rate-limit malformed and invalid magic packet
+ warnings
+
+---
+ drivers/input/joystick/joycon-serdev.c | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/input/joystick/joycon-serdev.c b/drivers/input/joystick/joycon-serdev.c
+index fe06e44c..3c9a276f 100644
+--- a/drivers/input/joystick/joycon-serdev.c
++++ b/drivers/input/joystick/joycon-serdev.c
+@@ -3034,14 +3034,14 @@ static int joycon_serdev_receive_buf(struct serdev_device *serdev,
+ 			    packet->magic[1] != JC_UART_MAGIC_RX_1 ||
+ 			    packet->magic[2] != JC_UART_MAGIC_RX_2) {
+ 				/* Toss out this packet if the magic is wrong */
+-				dev_warn(dev, "Received pkt has wrong magic\n");
++				dev_warn_ratelimited(dev, "Received pkt has wrong magic\n");
+ 				return len;
+ 			}
+ 			/* Proceed to process the packet without buffering */
+ 			dev_dbg(dev, "Received whole uart packet\n");
+ 		} else if (len-j > JC_MAX_RESP_SIZE) {
+ 			/* Toss out this packet if malformed */
+-			dev_warn(dev, "Received pkt is malformed\n");
++			dev_warn_ratelimited(dev, "Received pkt is malformed\n");
+ 			return len;
+ 		} else {
+ 			/* This isn't yet the whole packet. */
+@@ -3051,7 +3051,7 @@ static int joycon_serdev_receive_buf(struct serdev_device *serdev,
+ 		}
+ 	} else {
+ 		if (ctlr->partial_pkt_len + len > JC_MAX_UART_PKT_SIZE) {
+-			dev_warn(dev, "Packet length too large; ignoring\n");
++			dev_warn_ratelimited(dev, "Packet length too large; ignoring\n");
+ 			ctlr->partial_pkt_len = 0;
+ 			return len;
+ 		}
+@@ -3069,7 +3069,7 @@ static int joycon_serdev_receive_buf(struct serdev_device *serdev,
+ 			    packet->magic[1] != JC_UART_MAGIC_RX_1 ||
+ 			    packet->magic[2] != JC_UART_MAGIC_RX_2) {
+ 				/* Toss out this packet if the magic is wrong */
+-				dev_warn(dev, "Received pkt has wrong magic\n");
++				dev_warn_ratelimited(dev, "Received pkt has wrong magic\n");
+ 				return len;
+ 			}
+ 			/* Proceed to process the packet */
+@@ -3153,11 +3153,11 @@ static int sio_serdev_receive_buf(struct serdev_device *serdev,
+ 		if (len >= 4 && packet->payload_len + 8 <= len) {
+ 			if (packet->cmd != JC_SIO_INPUT_RPT) {
+ 				/* Toss out this packet if the magic is wrong */
+-				dev_warn(dev, "Received pkt has wrong magic\n");
++				dev_warn_ratelimited(dev, "Received pkt has wrong magic\n");
+ 				return len;
+ 			} else if (packet->payload_len > JC_SIO_MAX_RESP_SIZE) {
+ 				/* Toss out this packet if too big */
+-				dev_warn(dev, "Received pkt payload too big\n");
++				dev_warn_ratelimited(dev, "Received pkt payload too big\n");
+ 				return len;
+ 			}
+ 
+@@ -3165,7 +3165,7 @@ static int sio_serdev_receive_buf(struct serdev_device *serdev,
+ 			dev_dbg(dev, "Received whole uart packet\n");
+ 		} else if (len > JC_SIO_MAX_RESP_SIZE) {
+ 			/* Toss out this packet if malformed */
+-			dev_warn(dev, "Received pkt is malformed\n");
++			dev_warn_ratelimited(dev, "Received pkt is malformed\n");
+ 			return len;
+ 		} else {
+ 			/* This isn't yet the whole packet. */
+@@ -3175,7 +3175,7 @@ static int sio_serdev_receive_buf(struct serdev_device *serdev,
+ 		}
+ 	} else {
+ 		if (ctlr->partial_pkt_len + len > JC_SIO_MAX_UART_PKT_SIZE) {
+-			dev_warn(dev, "Packet length too large; ignoring\n");
++			dev_warn_ratelimited(dev, "Packet length too large; ignoring\n");
+ 			ctlr->partial_pkt_len = 0;
+ 			return len;
+ 		}
+@@ -3191,7 +3191,7 @@ static int sio_serdev_receive_buf(struct serdev_device *serdev,
+ 			ctlr->partial_pkt_len = 0;
+ 			if (packet->cmd != JC_SIO_INPUT_RPT) {
+ 				/* Toss out this packet if the magic is wrong */
+-				dev_warn(dev, "Received pkt has wrong magic\n");
++				dev_warn_ratelimited(dev, "Received pkt has wrong magic\n");
+ 				return len;
+ 			}
+ 			/* Proceed to process the packet */
+-- 
+2.47.3
+

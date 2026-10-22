@@ -103,7 +103,7 @@ if [ -f "${KERNEL_DIR}/arch/arm64/boot/Image.gz" ] && [ "${FORCE_REBUILD_KERNEL:
     echo "[✓] Kernel compilado detectado en ${KERNEL_DIR}. Omitiendo recompilación completa..."
     echo "[*] Verificando e instalando módulos del kernel en RootFS..."
     cd "${KERNEL_DIR}"
-    make modules_install INSTALL_MOD_PATH="${ROOTFS_DIR}" 2>/dev/null || true
+    make ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" modules_install INSTALL_MOD_PATH="${ROOTFS_DIR}" 2>/dev/null || true
     cd "${CWD}"
 else
     if [ ! -d "${KERNEL_DIR}" ]; then
@@ -120,10 +120,12 @@ else
         git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-platform-tegra-common "${CWD}/kernel/hardware/nvidia/platform/tegra/common/"
         git clone --depth 1 -b "l4t/l4t-r32.5" https://gitlab.com/switchroot/kernel/l4t-platform-t210-common "${CWD}/kernel/hardware/nvidia/platform/t210/common/"
         
-        if [ -f "${CWD}/patches/kernel/0001-Bluetooth-backport-BlueZ-5.8x-mgmt-opcodes-and-fix-c.patch" ]; then
-            echo "  -> Aplicando parche Bluetooth para BlueZ 5.8x..."
-            git -C "${KERNEL_DIR}" apply "${CWD}/patches/kernel/0001-Bluetooth-backport-BlueZ-5.8x-mgmt-opcodes-and-fix-c.patch" || true
-        fi
+        for patch_file in "${CWD}"/patches/kernel/*.patch; do
+            if [ -f "${patch_file}" ]; then
+                echo "  -> Aplicando parche $(basename "${patch_file}")..."
+                git -C "${KERNEL_DIR}" apply "${patch_file}" 2>/dev/null || true
+            fi
+        done
     fi
 
     cd "${KERNEL_DIR}"
@@ -136,7 +138,7 @@ else
     make -j"$(nproc)" Image.gz modules dtbs tegra-dtstree="../hardware/nvidia"
 
     echo "[*] Instalando módulos del kernel en RootFS..."
-    make modules_install INSTALL_MOD_PATH="${ROOTFS_DIR}"
+    make ARCH=arm64 CROSS_COMPILE="${CROSS_COMPILE}" modules_install INSTALL_MOD_PATH="${ROOTFS_DIR}"
     echo "  -> Liberando espacio de objetos compilados intermedios del kernel..."
     find "${KERNEL_DIR}" -name "*.o" -delete 2>/dev/null || true
     rm -f "${KERNEL_DIR}/vmlinux" 2>/dev/null || true
@@ -1747,6 +1749,7 @@ boot_prefixes=/switchroot/debian/
 id=SWR-DEB
 r2p_action=self
 fbconsole=0
+# jc_rail_disable=1 # Optional: Uncomment to disable physical Joy-Con rails if broken or noisy
 icon=switchroot/debian/icon_debian.bmp
 logopath=switchroot/debian/bootlogo_debian.bmp
 EOF
