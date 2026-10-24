@@ -40,6 +40,7 @@ debug_*.txt
 journalctl*.txt
 lightdm*.txt
 *.log
+/log_debug/
 
 # Python Cache & Virtual Environments
 __pycache__/

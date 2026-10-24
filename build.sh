@@ -1393,15 +1393,7 @@ fi
 # Bloquear actualización de paquetes Xorg en Debian para preservar compatibilidad con ABI 24.1
 mkdir -p "${ROOTFS_DIR}/etc/apt/preferences.d"
 cat << 'EOF' > "${ROOTFS_DIR}/etc/apt/preferences.d/00-switch-xorg-restrictions"
-Package: xserver-xorg-core
-Pin: release *
-Pin-Priority: -1
-
-Package: xserver-xorg-video-*
-Pin: release *
-Pin-Priority: -1
-
-Package: xserver-xorg-input-libinput
+Package: xserver-xorg*
 Pin: release *
 Pin-Priority: -1
 EOF

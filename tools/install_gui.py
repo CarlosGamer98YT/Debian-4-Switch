@@ -40,6 +40,8 @@ targets = [
     "xfce4-terminal", "thunar", "lightdm", "lightdm-gtk-greeter", "accountsservice",
     "xinit",
     "x11-xserver-utils", "x11-xkb-utils", "xkb-data", "xauth", "x11-utils", "xinput", "xrandr", "onboard",
+    "xserver-common", "keyboard-configuration", "libunwind8", "libxfont2", "libpciaccess0", "libinput10",
+    "libepoxy0", "libxshmfence1",
     "firefox-esr", "fastfetch", "libgl1-mesa-dri", "mesa-utils", "desktop-base", "adwaita-icon-theme", "adwaita-icon-theme-legacy", "hicolor-icon-theme",
     "alsa-utils", "alsa-ucm-conf", "alsa-topology-conf", "pulseaudio", "pulseaudio-utils", "pulseaudio-module-bluetooth", "pavucontrol",
     "xfce4-pulseaudio-plugin", "xfce4-power-manager", "xfce4-power-manager-plugins",
@@ -54,8 +56,10 @@ targets = [
 ]
 
 EXCLUDED_PACKAGES = {
-    "xserver-xorg-core", "xserver-xorg-legacy", "xserver-xorg-video-fbdev",
-    "xserver-xorg-video-modesetting", "xserver-xorg-input-libinput"
+    "xserver-xorg", "xserver-xorg-core", "xserver-xorg-legacy",
+    "xserver-xorg-video-fbdev", "xserver-xorg-video-modesetting",
+    "xserver-xorg-video-all", "xserver-xorg-input-libinput",
+    "xserver-xorg-input-all"
 }
 
 to_install = {}
