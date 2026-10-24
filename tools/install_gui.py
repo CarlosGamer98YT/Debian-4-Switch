@@ -37,8 +37,8 @@ print(f"[✓] {len(packages)} paquetes disponibles en Debian 13 (Trixie).")
 
 targets = [
     "xfce4", "xfce4-session", "xfwm4", "xfdesktop4", "xfce4-panel", "xfce4-settings",
-    "xfce4-terminal", "thunar", "lightdm", "lightdm-gtk-greeter", "accountsservice", "xserver-xorg-core",
-    "xserver-xorg-legacy", "xserver-xorg-video-fbdev", "xserver-xorg-video-modesetting", "xserver-xorg-input-libinput", "xinit",
+    "xfce4-terminal", "thunar", "lightdm", "lightdm-gtk-greeter", "accountsservice",
+    "xinit",
     "x11-xserver-utils", "x11-xkb-utils", "xkb-data", "xauth", "x11-utils", "xinput", "xrandr", "onboard",
     "firefox-esr", "fastfetch", "libgl1-mesa-dri", "mesa-utils", "desktop-base", "adwaita-icon-theme", "adwaita-icon-theme-legacy", "hicolor-icon-theme",
     "alsa-utils", "alsa-ucm-conf", "alsa-topology-conf", "pulseaudio", "pulseaudio-utils", "pulseaudio-module-bluetooth", "pavucontrol",
@@ -53,9 +53,14 @@ targets = [
     "cron", "cron-daemon-common", "locales", "libc-l10n", "man-db"
 ]
 
+EXCLUDED_PACKAGES = {
+    "xserver-xorg-core", "xserver-xorg-legacy", "xserver-xorg-video-fbdev",
+    "xserver-xorg-video-modesetting", "xserver-xorg-input-libinput"
+}
+
 to_install = {}
-queue = list(targets)
-visited = set()
+queue = [p for p in targets if p not in EXCLUDED_PACKAGES]
+visited = set(EXCLUDED_PACKAGES)
 
 while queue:
     pkg = queue.pop(0)

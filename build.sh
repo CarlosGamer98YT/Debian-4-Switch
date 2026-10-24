@@ -163,7 +163,7 @@ if [ ! -s "${DEBS_DIR}/Packages" ]; then
   fi
 fi
 
-for pkg in joycond nvidia-l4t-3d-core nvidia-l4t-configs nvidia-l4t-core nvidia-l4t-firmware nvidia-l4t-init nvidia-l4t-multimedia nvidia-l4t-multimedia-utils nvidia-l4t-x11 switch-alsa-ucm2 switch-bsp switch-dock-handler switch-joystick-mouse switch-touch-rules switch-l4t-configs; do
+for pkg in joycond nvidia-l4t-3d-core nvidia-l4t-configs nvidia-l4t-core nvidia-l4t-firmware nvidia-l4t-init nvidia-l4t-multimedia nvidia-l4t-multimedia-utils nvidia-l4t-x11 switch-alsa-ucm2 switch-bsp switch-dock-handler switch-joystick-mouse switch-touch-rules switch-l4t-configs xserver-xorg-core xserver-xorg-input-libinput xserver-xorg-video-fbdev; do
   if ! ls "${DEBS_DIR}/${pkg}"*.deb 1> /dev/null 2>&1; then
     if [ -s "${DEBS_DIR}/Packages" ]; then
       url=$(awk -v p="$pkg" '$1=="Package:" && $2==p {found=1} found && $1=="Filename:" {print $2; exit}' "${DEBS_DIR}/Packages" || true)
@@ -1277,21 +1277,23 @@ if [ -d "${NOBLE_ROOT}/usr/lib/aarch64-linux-gnu/tegra" ]; then
     cp -rn "${NOBLE_ROOT}/usr/lib/aarch64-linux-gnu/tegra-egl"/* "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra-egl/" 2>/dev/null || true
 fi
 
-# Neutralizar libdrm antiguo de Tegra (debe ser libdrm.orig para evitar colisión con Debian)
+# Neutralizar libdrm y libgbm antiguos/propietarios de Tegra (evitar colisión con Debian)
 if [ -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2" ]; then
     mv -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libdrm.orig"
 fi
 rm -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libdrm.so"* 2>/dev/null || true
+rm -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libgbm.so"* 2>/dev/null || true
+rm -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/tegra/libnvgbm.so.1"* 2>/dev/null || true
 
 # Restaurar symlink nativo de libdrm.so.2 de Debian 13
-DEB_LIBDRM=$(find "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu" -maxdepth 1 -name "libdrm.so.2.*" 2>/dev/null | head -n 1)
+DEB_LIBDRM=$(find "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu" -maxdepth 1 -name "libdrm.so.2.*" ! -name "libdrm.so.2" 2>/dev/null | head -n 1)
 if [ -n "${DEB_LIBDRM}" ]; then
     rm -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/libdrm.so.2"
     ln -sf "$(basename "${DEB_LIBDRM}")" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/libdrm.so.2"
 fi
 
 # Restaurar symlink nativo de libgbm.so.1 de Debian 13
-DEB_LIBGBM=$(find "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu" -maxdepth 1 -name "libgbm.so.1.*" 2>/dev/null | head -n 1)
+DEB_LIBGBM=$(find "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu" -maxdepth 1 -name "libgbm.so.1.*" ! -name "libgbm.so.1" 2>/dev/null | head -n 1)
 if [ -n "${DEB_LIBGBM}" ]; then
     rm -f "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/libgbm.so.1"
     ln -sf "$(basename "${DEB_LIBGBM}")" "${ROOTFS_DIR}/usr/lib/aarch64-linux-gnu/libgbm.so.1"
@@ -1346,18 +1348,19 @@ fi
 
 # Sincronización de Xorg 1.20 (ABI 24.1) compatible con el driver binario NVIDIA Tegra
 if [ -d "${NOBLE_ROOT}/usr/lib/xorg" ]; then
-    echo "  -> Sincronizando servidor Xorg 1.20 (ABI 24.1) compatible con NVIDIA Tegra..."
+    echo "  -> Sincronizando servidor Xorg 1.20 (ABI 24.1) compatible con NVIDIA Tegra desde dump..."
     cp -a "${NOBLE_ROOT}/usr/lib/xorg" "${ROOTFS_DIR}/usr/lib/"
     cp -a "${NOBLE_ROOT}/usr/bin/cvt" "${ROOTFS_DIR}/usr/bin/" 2>/dev/null || true
     cp -a "${NOBLE_ROOT}/usr/bin/gtf" "${ROOTFS_DIR}/usr/bin/" 2>/dev/null || true
-    chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" 2>/dev/null || true
-    chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
+fi
 
-    # Script de arranque de Xorg: exportar LD_LIBRARY_PATH y arrancar nativo con -ignoreABI
-    cat << 'EOF' > "${ROOTFS_DIR}/usr/bin/Xorg"
+chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg" 2>/dev/null || true
+chmod 0755 "${ROOTFS_DIR}/usr/lib/xorg/Xorg.wrap" 2>/dev/null || true
+
+# Script de arranque de Xorg: arrancar nativo garantizando -ignoreABI
+cat << 'EOF' > "${ROOTFS_DIR}/usr/bin/Xorg"
 #!/bin/sh
 basedir=/usr/lib/xorg
-export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/tegra:${LD_LIBRARY_PATH:-}"
 
 has_ignore_abi=0
 for arg in "$@"; do
@@ -1379,16 +1382,17 @@ else
     exec "$basedir"/Xorg "$@"
 fi
 EOF
-    chmod 755 "${ROOTFS_DIR}/usr/bin/Xorg"
+chmod 755 "${ROOTFS_DIR}/usr/bin/Xorg"
 
-    # Parchear sintaxis incompatible con Debian en /etc/systemd/nv.sh
-    if [ -f "${ROOTFS_DIR}/etc/systemd/nv.sh" ]; then
-        echo "  -> Parcheando sintaxis Debian en /etc/systemd/nv.sh..."
-        sed -i 's/addgroup "\([^"]*\)" "\([^"]*\)"/adduser "\1" "\2" 2>\/dev\/null || addgroup "\1" "\2" 2>\/dev\/null || true/g' "${ROOTFS_DIR}/etc/systemd/nv.sh"
-    fi
+# Parchear sintaxis incompatible con Debian en /etc/systemd/nv.sh
+if [ -f "${ROOTFS_DIR}/etc/systemd/nv.sh" ]; then
+    echo "  -> Parcheando sintaxis Debian en /etc/systemd/nv.sh..."
+    sed -i 's/addgroup "\([^"]*\)" "\([^"]*\)"/adduser "\1" "\2" 2>\/dev\/null || addgroup "\1" "\2" 2>\/dev\/null || true/g' "${ROOTFS_DIR}/etc/systemd/nv.sh"
+fi
 
-    mkdir -p "${ROOTFS_DIR}/etc/apt/preferences.d"
-    cat << 'EOF' > "${ROOTFS_DIR}/etc/apt/preferences.d/00-switch-xorg-restrictions"
+# Bloquear actualización de paquetes Xorg en Debian para preservar compatibilidad con ABI 24.1
+mkdir -p "${ROOTFS_DIR}/etc/apt/preferences.d"
+cat << 'EOF' > "${ROOTFS_DIR}/etc/apt/preferences.d/00-switch-xorg-restrictions"
 Package: xserver-xorg-core
 Pin: release *
 Pin-Priority: -1
@@ -1401,7 +1405,6 @@ Package: xserver-xorg-input-libinput
 Pin: release *
 Pin-Priority: -1
 EOF
-fi
 
 rm -f "${ROOTFS_DIR}/etc/systemd/system/multi-user.target.wants/nvwifibt.service"
 rm -f "${ROOTFS_DIR}/etc/systemd/system/nvwifibt.service"
@@ -1852,7 +1855,7 @@ Before=sysinit.target systemd-tmpfiles-setup.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chmod 0755 /usr/lib/xorg/Xorg /usr/lib/xorg/Xorg.wrap 2>/dev/null; [ -f /usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2 ] && mv -f /usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2 /usr/lib/aarch64-linux-gnu/tegra/libdrm.orig 2>/dev/null || true; [ -f /usr/lib/aarch64-linux-gnu/libdrm.so.2.124.0 ] && ln -sf libdrm.so.2.124.0 /usr/lib/aarch64-linux-gnu/libdrm.so.2 2>/dev/null || true; rm -f /usr/lib/aarch64-linux-gnu/libnvgbm.so 2>/dev/null || true; [ -f /usr/lib/aarch64-linux-gnu/libgbm.so.1.0.0 ] && ln -sf libgbm.so.1.0.0 /usr/lib/aarch64-linux-gnu/libgbm.so.1 2>/dev/null || true; /sbin/ldconfig 2>/dev/null || true; mkdir -p /run/polkit-1/rules.d 2>/dev/null; adduser lightdm video 2>/dev/null || true; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel /var/lib/nvpmodel/* 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/nvpmodel ] && ln -sf /usr/sbin/nvpmodel /usr/bin/nvpmodel 2>/dev/null; chmod 666 /sys/devices/pwm-fan/* /sys/bus/platform/devices/pwm-fan/* /sys/devices/platform/thermal-fan-est/* /sys/kernel/tegra_cpufreq/* /sys/class/thermal/thermal_zone*/* 2>/dev/null || true; [ -x /usr/share/nvpmodel_indicator/nvpmodel_helper.sh ] && /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 10 $(cat /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || echo 0) 2>/dev/null || true; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true; sed -i "s/^\s*session\s\+required\s\+pam_loginuid.so/#session required pam_loginuid.so/" /etc/pam.d/lightdm* 2>/dev/null || true; mkdir -p /etc/X11/xorg.conf.d 2>/dev/null; [ ! -f /etc/X11/xorg.conf.d/00-serverflags.conf ] && printf '\''Section "ServerFlags"\n    Option "IgnoreABI" "true"\n    Option "DontVTSwitch" "false"\nEndSection\n'\'' > /etc/X11/xorg.conf.d/00-serverflags.conf 2>/dev/null || true; sed -i "s|xserver-command=X.*|xserver-command=X -ignoreABI|g" /etc/lightdm/lightdm.conf /etc/lightdm/lightdm.conf.d/*.conf /usr/share/lightdm/lightdm.conf.d/*.conf 2>/dev/null || true; [ -f /etc/lightdm/lightdm.conf.d/50-nvidia.conf ] && sed -i "s/\[SeatDefaults\]/\[Seat:*\]/g" /etc/lightdm/lightdm.conf.d/50-nvidia.conf 2>/dev/null || true'
+ExecStart=/bin/sh -c 'chown 0:0 /etc /etc/sudo.conf /etc/sudoers /etc/sudoers.d /etc/sudoers.d/* 2>/dev/null; chmod 0440 /etc/sudoers /etc/sudoers.d/* 2>/dev/null; chmod 0644 /etc/sudo.conf 2>/dev/null; chmod 4755 /usr/bin/sudo /usr/bin/su /usr/bin/passwd /usr/bin/crontab 2>/dev/null; chmod 0755 /usr/lib/xorg/Xorg /usr/lib/xorg/Xorg.wrap 2>/dev/null; [ -f /usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2 ] && mv -f /usr/lib/aarch64-linux-gnu/tegra/libdrm.so.2 /usr/lib/aarch64-linux-gnu/tegra/libdrm.orig 2>/dev/null || true; rm -f /usr/lib/aarch64-linux-gnu/tegra/libgbm.so* /usr/lib/aarch64-linux-gnu/tegra/libnvgbm.so.1* /usr/lib/aarch64-linux-gnu/libnvgbm.so 2>/dev/null || true; drm_real=$(find /usr/lib/aarch64-linux-gnu -maxdepth 1 -name "libdrm.so.2.*" ! -name "libdrm.so.2" 2>/dev/null | head -n 1); [ -n "$drm_real" ] && ln -sf "$(basename "$drm_real")" /usr/lib/aarch64-linux-gnu/libdrm.so.2 2>/dev/null || true; gbm_real=$(find /usr/lib/aarch64-linux-gnu -maxdepth 1 -name "libgbm.so.1.*" ! -name "libgbm.so.1" 2>/dev/null | head -n 1); [ -n "$gbm_real" ] && ln -sf "$(basename "$gbm_real")" /usr/lib/aarch64-linux-gnu/libgbm.so.1 2>/dev/null || true; sed -i "/LD_LIBRARY_PATH/d" /usr/bin/Xorg 2>/dev/null || true; /sbin/ldconfig 2>/dev/null || true; mkdir -p /run/polkit-1/rules.d 2>/dev/null; adduser lightdm video 2>/dev/null || true; chown -R lightdm:lightdm /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null || chown -R 105:110 /var/lib/lightdm /var/cache/lightdm /run/lightdm 2>/dev/null; chown -R lightdm:root /var/log/lightdm 2>/dev/null || chown -R 105:0 /var/log/lightdm 2>/dev/null; chmod 0755 /var/lib/lightdm /var/cache/lightdm /var/log/lightdm /run/lightdm 2>/dev/null; chmod 0750 /var/lib/lightdm/data 2>/dev/null; chown -R man:root /var/cache/man 2>/dev/null; chmod 2755 /var/cache/man 2>/dev/null; chmod 777 /var/lib/nvpmodel /var/lib/nvpmodel/* 2>/dev/null; chmod 755 /usr/local/bin/switch-sensors 2>/dev/null; [ ! -e /usr/bin/nvpmodel ] && ln -sf /usr/sbin/nvpmodel /usr/bin/nvpmodel 2>/dev/null; chmod 666 /sys/devices/pwm-fan/* /sys/bus/platform/devices/pwm-fan/* /sys/devices/platform/thermal-fan-est/* /sys/kernel/tegra_cpufreq/* /sys/class/thermal/thermal_zone*/* 2>/dev/null || true; [ -x /usr/share/nvpmodel_indicator/nvpmodel_helper.sh ] && /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 10 $(cat /var/lib/nvpmodel/custom_fan_mode 2>/dev/null || echo 0) 2>/dev/null || true; [ ! -e /usr/bin/lightdm-gtk-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-gtk-greeter 2>/dev/null; [ ! -e /usr/bin/lightdm-greeter ] && ln -sf /usr/sbin/lightdm-gtk-greeter /usr/bin/lightdm-greeter 2>/dev/null; [ ! -e /usr/bin/x-session-manager ] && ln -sf /usr/bin/xfce4-session /usr/bin/x-session-manager 2>/dev/null; [ ! -e /usr/bin/x-window-manager ] && ln -sf /usr/bin/xfwm4 /usr/bin/x-window-manager 2>/dev/null; [ ! -e /usr/bin/x-terminal-emulator ] && ln -sf /usr/bin/xfce4-terminal /usr/bin/x-terminal-emulator 2>/dev/null; [ ! -e /usr/bin/x-www-browser ] && ln -sf /usr/bin/firefox /usr/bin/x-www-browser 2>/dev/null; ln -sf /usr/share/xgreeters/lightdm-gtk-greeter.desktop /etc/alternatives/lightdm-greeter.desktop 2>/dev/null; sed -i "s|^Exec=.*|Exec=/usr/sbin/lightdm-gtk-greeter|" /usr/share/xgreeters/lightdm-gtk-greeter.desktop 2>/dev/null; echo normal > /etc/default/switch-rotation 2>/dev/null; chmod 644 /etc/default/switch-rotation 2>/dev/null || true; sed -i "s/^\s*session\s\+required\s\+pam_loginuid.so/#session required pam_loginuid.so/" /etc/pam.d/lightdm* 2>/dev/null || true; mkdir -p /etc/X11/xorg.conf.d 2>/dev/null; [ ! -f /etc/X11/xorg.conf.d/00-serverflags.conf ] && printf '\''Section "ServerFlags"\n    Option "IgnoreABI" "true"\n    Option "DontVTSwitch" "false"\nEndSection\n'\'' > /etc/X11/xorg.conf.d/00-serverflags.conf 2>/dev/null || true; sed -i "s|xserver-command=X.*|xserver-command=X -ignoreABI|g" /etc/lightdm/lightdm.conf /etc/lightdm/lightdm.conf.d/*.conf /usr/share/lightdm/lightdm.conf.d/*.conf 2>/dev/null || true; [ -f /etc/lightdm/lightdm.conf.d/50-nvidia.conf ] && sed -i "s/\[SeatDefaults\]/\[Seat:*\]/g" /etc/lightdm/lightdm.conf.d/50-nvidia.conf 2>/dev/null || true'
 RemainAfterExit=yes
 
 [Install]
