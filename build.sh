@@ -1744,7 +1744,7 @@ boot_prefixes=/switchroot/debian/
 id=SWR-DEB
 r2p_action=self
 fbconsole=0
-# jc_rail_disable=1 # Optional: Uncomment to disable physical Joy-Con rails if broken or noisy
+jc_rail_disable=0
 icon=switchroot/debian/icon_debian.bmp
 logopath=switchroot/debian/bootlogo_debian.bmp
 EOF

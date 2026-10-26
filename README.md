@@ -114,7 +114,7 @@ This is caused by an attached Joy-Con that is physically broken, has damaged int
 
 **Solutions:**
 1. **Physical Fix (Fastest)**: Simply **slide off and detach the broken Joy-Con** from the console. If you use a Pro Controller or Bluetooth controllers, you can keep the rail empty and Debian will boot normally.
-2. **Optional Software Setting (to keep the broken Joy-Con slotted in)**: On your SD card, edit `bootloader/ini/debian.ini` and uncomment or add `jc_rail_disable=1` under `[Debian 13 Trixie]`:
+2. **Optional Software Setting (to keep the broken Joy-Con slotted in)**: On your SD card, edit `bootloader/ini/debian.ini` and change `jc_rail_disable=0` to `jc_rail_disable=1` under `[Debian 13 Trixie]`:
    ```ini
    [Debian 13 Trixie]
    l4t=1
